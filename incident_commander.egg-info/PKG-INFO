@@ -1,0 +1,176 @@
+Metadata-Version: 2.4
+Name: incident-commander
+Version: 1.0.0
+Summary: OpenEnv environment for SRE incident response
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: openenv-core[core]>=0.2.2
+Requires-Dist: fastapi>=0.115.0
+Requires-Dist: uvicorn[standard]>=0.30.0
+Requires-Dist: pydantic>=2.0.0
+Requires-Dist: openai>=2.29.0
+Requires-Dist: httpx>=0.27.0
+Requires-Dist: websockets>=12.0
+Provides-Extra: dev
+Requires-Dist: pytest>=8.0.0; extra == "dev"
+
+---
+title: Incident Commander
+colorFrom: red
+colorTo: gray
+sdk: docker
+pinned: false
+app_port: 8000
+tags:
+  - openenv
+---
+
+# Incident Commander
+
+`incident_commander` is an OpenEnv environment for SRE incident response. An agent plays incident commander during live production outages, balancing diagnosis, remediation, paging, status communication, and root-cause analysis.
+
+The environment exposes the standard OpenEnv `reset()` / `step()` / `state()` API over FastAPI plus three additional endpoints:
+
+- `GET /tasks`
+- `POST /grader`
+- `POST /baseline`
+
+## Tasks
+
+Three deterministic scenarios are included.
+
+1. `cpu_spike` (`easy`)
+   A bad `api-gateway` deploy introduced an N+1 query bug that spiked CPU and checkout latency.
+2. `db_cascade` (`medium`)
+   A `session-worker` connection leak exhausted the DB pool and took `auth-service` down.
+3. `ddos_payment` (`hard`)
+   A volumetric DDoS hit the edge while Stripe failed upstream, forcing traffic mitigation and payment fallback.
+
+## Action Space
+
+The action model is `IncidentAction`.
+
+Available `action_type` values:
+
+- `run_query`
+- `scale_service`
+- `restart_pod`
+- `rollback`
+- `toggle_feature`
+- `page_team`
+- `post_status`
+- `submit_rca`
+
+Important typed fields include:
+
+- `service_name`
+- `replicas`
+- `version`
+- `team`
+- `query`
+- `feature_flag`
+- `enabled`
+- `message`
+
+## Observation Space
+
+The observation model is `IncidentObservation`.
+
+It includes:
+
+- current service health for all visible services
+- recent logs and active alerts
+- scalar and categorical metrics
+- elapsed incident time, affected users, and revenue impact
+- action history and last query result
+- explicit `resolved`, `reward`, and `done`
+
+## State Space
+
+The state model is `IncidentState`.
+
+It tracks:
+
+- task id, severity, and step count
+- whether the incident is resolved
+- feature flag state
+- paged teams and status posts
+- last query result
+- full action history
+
+## Reward and Grading
+
+The environment uses dense per-step reward plus a deterministic final grader.
+
+- Investigation queries receive small positive reward when they match the real incident.
+- Correct operational actions produce larger reward.
+- Destructive actions on healthy systems are penalized.
+- RCA scoring checks scenario-specific keywords and whether the incident was actually resolved.
+
+The final grader returns a score in `[0.0, 1.0]` using weighted components for resolution, action coverage, feature toggles, efficiency, RCA quality, and time-to-resolution.
+
+## Baseline
+
+The repository includes `baseline.py`.
+
+- With `OPENAI_API_KEY` set, it can use an OpenAI model through tool calling.
+- Without credentials, it falls back to a deterministic heuristic policy that solves all three tasks locally for smoke testing.
+
+Run it with:
+
+```bash
+uv run python baseline.py --force-heuristic
+```
+
+Or with OpenAI:
+
+```bash
+OPENAI_API_KEY=... uv run python baseline.py --model gpt-4.1-mini --seed 7
+```
+
+Verified local heuristic baseline:
+
+- `cpu_spike`: `1.0000`
+- `db_cascade`: `1.0000`
+- `ddos_payment`: `1.0000`
+- Average: `1.0000`
+
+## Setup
+
+```bash
+uv venv --python 3.11 .venv
+uv sync
+uv run pytest
+```
+
+Run the server locally:
+
+```bash
+uv run python -m uvicorn server.app:app --host 127.0.0.1 --port 8000
+```
+
+## Validation
+
+```bash
+uv run openenv validate
+uv run python -m uvicorn server.app:app --host 127.0.0.1 --port 8000
+uv run openenv validate --url http://127.0.0.1:8000
+```
+
+## Standard API Endpoints
+
+- `POST /reset`
+- `POST /step`
+- `GET /state`
+- `GET /schema`
+- `GET /metadata`
+- `GET /health`
+
+## Deployment
+
+The repository is ready for Docker-based OpenEnv deployment.
+
+```bash
+docker build -t incident-commander .
+docker run -p 8000:8000 incident-commander
+```

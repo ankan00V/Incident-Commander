@@ -1,0 +1,3 @@
+[console_scripts]
+baseline = incident_commander.baseline:main
+server = server.app:main
