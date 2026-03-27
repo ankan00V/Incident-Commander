@@ -1,3 +1,0 @@
-[console_scripts]
-baseline = support_ops_env.baseline:main
-server = support_ops_env.server.app:main

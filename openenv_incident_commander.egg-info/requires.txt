@@ -1,5 +1,0 @@
-openenv-core[core]>=0.2.2
-openai>=2.29.0
-
-[dev]
-pytest>=8.0.0
