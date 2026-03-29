@@ -162,6 +162,7 @@ def _openai_action(
         model=config.model,
         seed=config.seed,
         temperature=0,
+        max_tokens=400,
         tool_choice={"type": "function", "function": {"name": "submit_action"}},
         tools=[_tool_schema()],
         messages=[
