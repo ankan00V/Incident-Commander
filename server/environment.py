@@ -299,10 +299,17 @@ class IncidentCommanderEnvironment(
                 self._state.investigation_finding_ids.append(finding.finding_id)
                 self._state.investigation_findings.append(finding.note)
                 new_notes.append(finding.note)
+        telemetry_lines = self._query_telemetry_snapshot()
         self._append_log("INFO", "query-engine", f"Query executed: {query[:80]}")
         if new_notes:
-            return DispatchResult(f"Query surfaced new evidence: {' | '.join(new_notes)}")
-        return DispatchResult("Query confirmed evidence already visible in the incident timeline.")
+            return DispatchResult(
+                "Query surfaced new evidence: "
+                f"{' | '.join(new_notes)} Telemetry: {' | '.join(telemetry_lines)}"
+            )
+        return DispatchResult(
+            "Query confirmed evidence already visible in the incident timeline. "
+            f"Telemetry: {' | '.join(telemetry_lines)}"
+        )
 
     def _scale_service(self, action: IncidentAction) -> DispatchResult:
         service = self._require_service(action.service_name, "scale_service")
@@ -415,6 +422,25 @@ class IncidentCommanderEnvironment(
         scored.sort(key=lambda item: (-item[0], item[1].finding_id))
         return [finding for _, finding in scored[:2]]
 
+    def _query_telemetry_snapshot(self) -> list[str]:
+        services = sorted(
+            self._state.services,
+            key=lambda service: (service.status != "healthy", service.error_rate, service.p99_latency_ms),
+            reverse=True,
+        )
+        service_lines = [
+            (
+                f"{service.name}: {service.status}, "
+                f"error_rate={service.error_rate:.2f}, p99={service.p99_latency_ms:.0f}ms"
+            )
+            for service in services[:3]
+        ]
+        log_lines = [
+            f"{entry.service} {entry.level}: {entry.message}"
+            for entry in self._state.logs[-3:]
+        ]
+        return service_lines + log_lines
+
     def _refresh_incident_state(self) -> None:
         if self._task.task_id == "cpu_spike":
             self._refresh_cpu_spike()
@@ -430,6 +456,7 @@ class IncidentCommanderEnvironment(
         db = services["db-primary"]
         initial_gateway_replicas = 3
         scale_bonus = max(gateway.replicas - initial_gateway_replicas, 0)
+        elapsed = self._elapsed_seconds()
 
         if self._state.resolution_markers.get("rollback_completed"):
             gateway.status = "healthy"
@@ -461,11 +488,21 @@ class IncidentCommanderEnvironment(
         db.status = "healthy"
         db.error_rate = 0.00
         db.p99_latency_ms = 12
+
+        if elapsed >= 180:
+            db.status = "degraded"
+            db.error_rate = 0.04
+            db.p99_latency_ms = 640
+        if elapsed >= 270:
+            user_service.status = "down"
+            user_service.error_rate = 0.21
+            user_service.p99_latency_ms = 5200
+
         self._state.metrics = {
             "cpu_pct": round(max(98.0 - (16.0 * scale_bonus), 80.0), 1),
             "mem_pct": round(61.0 + (1.0 * relief), 1),
             "req_per_sec": 1200.0,
-            "error_rate": gateway.error_rate,
+            "error_rate": round(max(gateway.error_rate, user_service.error_rate), 2),
         }
         self._state.active_alerts = [
             "ALERT: api-gateway CPU > 90% for 3m [P1]",
@@ -473,6 +510,10 @@ class IncidentCommanderEnvironment(
         ]
         if gateway.error_rate >= 0.10:
             self._state.active_alerts.append("ALERT: Error rate > 10% [P1]")
+        if elapsed >= 180:
+            self._state.active_alerts.append("ALERT: db-primary latency rising under gateway saturation [P2]")
+        if elapsed >= 270:
+            self._state.active_alerts.append("ALERT: user-service availability collapsing from upstream timeouts [P1]")
         self._state.resolved = False
 
     def _refresh_db_cascade(self) -> None:
@@ -482,6 +523,7 @@ class IncidentCommanderEnvironment(
         db = services["db-primary"]
         cache = services["redis-cache"]
         session = services["session-worker"]
+        elapsed = self._elapsed_seconds()
 
         leak_cleared = self._state.resolution_markers.get("session_worker_restarted", False)
         replica_routing = self._state.feature_flags.get("read_replica_routing", False)
@@ -562,6 +604,21 @@ class IncidentCommanderEnvironment(
                 api.error_rate = 0.12
                 api.p99_latency_ms = 2100
 
+        if elapsed >= 225 and not replica_routing:
+            api.status = "down"
+            api.error_rate = 0.78
+            api.p99_latency_ms = 14000
+            error_rate += 0.12
+        if elapsed >= 315 and not db_scaled:
+            db.status = "down"
+            db.error_rate = 0.99
+            db.p99_latency_ms = 30000
+            auth.status = "down"
+            auth.error_rate = 0.99
+            auth.p99_latency_ms = 30000
+            error_rate += 0.14
+            db_connections = 500.0
+
         self._state.metrics = {
             "cpu_pct": 45.0,
             "mem_pct": 88.0,
@@ -578,6 +635,10 @@ class IncidentCommanderEnvironment(
             self._state.active_alerts.append("ALERT: Cache hit rate < 20% [P2]")
         if not leak_cleared:
             self._state.active_alerts.append("ALERT: session-worker memory leak suspected [P2]")
+        if elapsed >= 225 and not replica_routing:
+            self._state.active_alerts.append("ALERT: api-gateway is now dropping login traffic [P1]")
+        if elapsed >= 315 and not db_scaled:
+            self._state.active_alerts.append("ALERT: db-primary is approaching hard failure [P0]")
         self._state.resolved = False
 
     def _refresh_ddos_payment(self) -> None:
@@ -589,6 +650,7 @@ class IncidentCommanderEnvironment(
         order = services["order-service"]
         user = services["user-service"]
         db = services["db-primary"]
+        elapsed = self._elapsed_seconds()
 
         ddos_mitigated = self._state.feature_flags.get("ddos_challenge_mode", False)
         payment_fallback = self._state.feature_flags.get("payment_fallback_braintree", False)
@@ -642,6 +704,26 @@ class IncidentCommanderEnvironment(
             revenue_impact = 0.0
             error_rate -= 0.17
 
+        if elapsed >= 180 and not ddos_mitigated:
+            edge.status = "down"
+            edge.error_rate = 0.46
+            edge.p99_latency_ms = 6400
+            api.status = "down"
+            api.error_rate = 0.34
+            api.p99_latency_ms = 7200
+            revenue_impact = max(revenue_impact, 18000.0)
+            error_rate += 0.12
+
+        if elapsed >= 270 and not payment_fallback:
+            payment.status = "down"
+            payment.error_rate = 0.99
+            payment.p99_latency_ms = 0
+            checkout.status = "down"
+            checkout.error_rate = 0.82
+            checkout.p99_latency_ms = 11000
+            revenue_impact = max(revenue_impact, 24000.0)
+            error_rate += 0.18
+
         self._state.metrics = {
             "cpu_pct": 78.0 if not ddos_mitigated else 49.0,
             "mem_pct": 71.0 if not ddos_mitigated else 63.0,
@@ -658,6 +740,10 @@ class IncidentCommanderEnvironment(
             self._state.active_alerts.append("ALERT: payment-service down — revenue impact $12k/min [P0]")
         if checkout.error_rate >= 0.10:
             self._state.active_alerts.append("ALERT: checkout error rate 55% [P0]")
+        if elapsed >= 180 and not ddos_mitigated:
+            self._state.active_alerts.append("ALERT: edge saturation is now knocking api-gateway offline [P0]")
+        if elapsed >= 270 and not payment_fallback:
+            self._state.active_alerts.append("ALERT: checkout is now fully unavailable [P0]")
         if ddos_mitigated and payment_fallback:
             self._state.active_alerts = ["RECOVERY: checkout stabilized on challenge mode + Braintree fallback"]
             self._state.resolved = True
@@ -665,7 +751,7 @@ class IncidentCommanderEnvironment(
         self._state.resolved = False
 
     def _elapsed_seconds(self) -> int:
-        return int((datetime.now(timezone.utc) - self._started_at).total_seconds())
+        return self._state.step_count * 45
 
     def _append_log(self, level: str, service: str, message: str) -> None:
         self._state.logs.append(

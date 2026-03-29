@@ -16,7 +16,7 @@ tags:
 
 # Incident Commander
 
-Production incident response for OpenEnv. An agent operates as the incident commander during live outages, balancing diagnosis, mitigation, coordination, customer communication, and post-incident RCA.
+Production incident response for OpenEnv. An agent operates as the incident commander during live outages, balancing diagnosis, mitigation, cross-team coordination, customer communication, and post-incident RCA.
 
 `incident_commander` is built directly against the Round 1 statement:
 
@@ -24,7 +24,9 @@ Production incident response for OpenEnv. An agent operates as the incident comm
 
 The agent must interpret telemetry, choose operational mitigations, page the correct teams, communicate externally when needed, and submit an RCA at the end of the episode.
 
-This is not a toy workflow. It models a genuine human job performed by SRE, platform, and incident-management teams under time pressure, with explicit penalties for invalid or destructive actions.
+This is not a toy workflow. It models a genuine human job performed by SRE, platform, security, payments, and incident-management teams under time pressure, with explicit penalties for invalid or destructive actions.
+
+The distinctive idea is that the agent is not only fixing infrastructure. It is running the whole war room: gathering evidence, choosing the least-destructive mitigation, coordinating responders, protecting revenue, and communicating externally while the system is still unstable.
 
 ## Why This Submission Is Strong
 
@@ -33,6 +35,7 @@ This is not a toy workflow. It models a genuine human job performed by SRE, plat
 - credible difficulty ramp: tasks move from single-root-cause rollback to multi-team, multi-mitigation outage response
 - deterministic evaluation: graders return stable scores in `[0.0, 1.0]`
 - deployment-ready packaging: validated OpenEnv app plus Dockerized Hugging Face Space runtime
+- judge-friendly walkthroughs: a replayable `/demo` endpoint turns a baseline run into a step-by-step war-room timeline
 
 ## Environment Overview
 
@@ -40,8 +43,10 @@ This is not a toy workflow. It models a genuine human job performed by SRE, plat
 - Typed Pydantic models for action, observation, and state
 - 3 deterministic tasks with easy -> medium -> hard progression
 - Dense reward shaping across the trajectory
+- Step-based incident escalation so unresolved outages worsen as turns are burned
 - Programmatic grader with scores in `[0.0, 1.0]`
 - Baseline inference script with reproducible local scores
+- Replayable judge demo endpoint for step-by-step incident walkthroughs
 - Dockerized runtime for Hugging Face Spaces and OpenEnv validation
 
 ## Tasks
@@ -53,6 +58,12 @@ This is not a toy workflow. It models a genuine human job performed by SRE, plat
 | `ddos_payment` | Hard | Mitigate a DDoS while activating payment fallback and coordinating response |
 
 The hard task is intentionally not a single-fix puzzle. It requires traffic mitigation, payments failover, correct team escalation, and user-facing communication, while penalizing the kinds of wrong actions a real incident commander should avoid.
+
+Business stakes by task:
+
+- `cpu_spike`: search and navigation are failing for 8,400 users after a bad deploy
+- `db_cascade`: 47,000 users are blocked from login while the primary DB pool is exhausted
+- `ddos_payment`: 230,000 users are exposed to a live revenue and trust incident across security and payments domains
 
 ## Action Space
 
@@ -118,6 +129,7 @@ It includes:
 Reward is dense, not sparse.
 
 - relevant investigation improves progress
+- queries return concrete incident evidence and live telemetry snapshots
 - correct mitigation actions create larger positive deltas
 - repeated or invalid actions reduce reward
 - destructive actions on healthy systems are penalized
@@ -135,6 +147,7 @@ Scored components:
 - operational resolution
 - mitigation coverage
 - communication coverage
+- hard-task sequencing and safe blast-radius decisions
 - RCA quality
 - efficiency penalties
 - destructive / invalid / repeated-action penalties
@@ -166,10 +179,33 @@ Verified local heuristic baseline:
 | --- | --- |
 | `cpu_spike` | `1.0000` |
 | `db_cascade` | `1.0000` |
-| `ddos_payment` | `1.0000` |
-| Average | `1.0000` |
+| `ddos_payment` | `0.9200` |
+| Average | `0.9733` |
 
-The heuristic baseline is a reproducibility and sanity-check baseline, not a claim that the environment is saturated. The hard task still requires coordinated action selection and is intended to be sensitive to weaker policies, invalid actions, and poor sequencing.
+The heuristic baseline is a reproducibility and smoke-test fallback, not the benchmark target. The hard task is intentionally no longer a perfect-score oracle for the deterministic policy: it rewards correct mitigation order, cross-team coordination, substantive communication, and avoiding noisy actions on healthy systems.
+
+## Judge Demo
+
+This repository includes a replay-friendly demo path so judges can see the environment behave like a real operational system instead of only reading a final score.
+
+Fastest local demo:
+
+```bash
+uv run python baseline.py --demo --task-id ddos_payment --force-heuristic
+```
+
+That produces a war-room replay with:
+
+- the initial incident snapshot
+- every action the baseline takes
+- the outcome of each action
+- live progress-score changes
+- the final incident state and grader result
+
+HTTP version of the same demo:
+
+- `POST /demo` for a single replayable incident walkthrough
+- `POST /demo` with `include_all_tasks=true` for a full judge showcase across all tasks
 
 ## Local Setup
 
@@ -184,6 +220,13 @@ Run the server locally:
 ```bash
 uv run python -m uvicorn server.app:app --host 127.0.0.1 --port 8000
 ```
+
+Then open:
+
+- `http://127.0.0.1:8000/docs`
+- `GET /tasks`
+- `POST /demo`
+- `POST /baseline`
 
 ## OpenEnv Validation
 
@@ -267,3 +310,5 @@ Additional evaluation endpoints:
 - `GET /tasks`
 - `POST /grader`
 - `POST /baseline`
+
+For manual HTTP clients, `/reset` sets a session cookie and also returns `X-Session-Id`. If you are not using a stateful client, echo that header back to `/step` and `/state`.

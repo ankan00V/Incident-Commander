@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Callable
 
 from .models import IncidentState, ProgressMetric, ServiceStatus
 from .task_bank import ActionRequirement, ScenarioDefinition, get_task
@@ -21,6 +22,29 @@ def _clamp(score: float) -> float:
 
 def _service_map(state: IncidentState) -> dict[str, ServiceStatus]:
     return {service.name: service for service in state.services}
+
+
+def _action_indices(
+    state: IncidentState,
+    predicate: Callable[[str, dict], bool],
+) -> list[int]:
+    return [
+        index
+        for index, trace in enumerate(state.actions_taken)
+        if predicate(trace.action_type, trace.params)
+    ]
+
+
+def _first_action_index(
+    state: IncidentState,
+    predicate: Callable[[str, dict], bool],
+) -> int | None:
+    matches = _action_indices(state, predicate)
+    return matches[0] if matches else None
+
+
+def _text_contains_any(text: str, tokens: tuple[str, ...]) -> bool:
+    return any(token in text for token in tokens)
 
 
 def _requirement_match(requirement: ActionRequirement, trace_params: dict, action_type: str) -> bool:
@@ -68,10 +92,90 @@ def _investigation_score(state: IncidentState, task: ScenarioDefinition) -> floa
     return hits / len(task.required_findings)
 
 
+def _ddos_payment_mitigation_score(state: IncidentState) -> float:
+    ddos_index = _first_action_index(
+        state,
+        lambda action_type, params: (
+            action_type == "toggle_feature"
+            and params.get("feature_flag") == "ddos_challenge_mode"
+            and params.get("enabled") is True
+        ),
+    )
+    payment_index = _first_action_index(
+        state,
+        lambda action_type, params: (
+            action_type == "toggle_feature"
+            and params.get("feature_flag") == "payment_fallback_braintree"
+            and params.get("enabled") is True
+        ),
+    )
+    destructive_touches = _action_indices(
+        state,
+        lambda action_type, params: (
+            action_type in {"restart_pod", "rollback", "scale_service"}
+            and params.get("service_name") in {"order-service", "db-primary", "user-service"}
+        ),
+    )
+
+    score = 0.0
+    if ddos_index is not None:
+        score += 0.25
+    if payment_index is not None:
+        score += 0.25
+    if ddos_index is not None and payment_index is not None and ddos_index < payment_index:
+        score += 0.30
+    if not destructive_touches:
+        score += 0.20
+    return round(score, 4)
+
+
+def _ddos_payment_communication_score(state: IncidentState) -> float:
+    paged_teams = set(state.paged_teams)
+    status_messages = [message.strip() for message in state.status_updates if message.strip()]
+    substantive_status = any(
+        len(message) >= 40
+        and _text_contains_any(
+            message.lower(),
+            ("checkout", "payment", "traffic", "attack", "mitigat", "provider", "status"),
+        )
+        for message in status_messages
+    )
+
+    score = 0.0
+    if "security" in paged_teams:
+        score += 0.3
+    if "payments" in paged_teams:
+        score += 0.3
+    if substantive_status:
+        score += 0.4
+    return round(score, 4)
+
+
 def _rca_score(state: IncidentState, task: ScenarioDefinition) -> float:
     text = state.submitted_rca_text.lower()
     if not text:
         return 0.0
+    if task.task_id == "ddos_payment":
+        ddos_identified = _text_contains_any(
+            text,
+            ("ddos", "attack", "volumetric", "challenge mode", "edge traffic"),
+        )
+        upstream_identified = _text_contains_any(
+            text,
+            ("stripe", "payment provider", "upstream", "503"),
+        )
+        fallback_identified = _text_contains_any(
+            text,
+            ("braintree", "fallback"),
+        )
+        score = 0.0
+        if ddos_identified:
+            score += 0.4
+        if upstream_identified:
+            score += 0.4
+        if fallback_identified:
+            score += 0.2
+        return round(score, 4)
     hits = sum(1 for keyword in task.rca_keywords if keyword.lower() in text)
     return hits / max(len(task.rca_keywords), 1)
 
@@ -112,13 +216,33 @@ def _resolution_score(state: IncidentState, task: ScenarioDefinition) -> float:
         return round(min(sum(stage_scores), 0.9), 4)
 
     if task.task_id == "ddos_payment":
+        ddos_enabled = state.feature_flags.get("ddos_challenge_mode")
+        payment_enabled = state.feature_flags.get("payment_fallback_braintree")
+        ddos_index = _first_action_index(
+            state,
+            lambda action_type, params: (
+                action_type == "toggle_feature"
+                and params.get("feature_flag") == "ddos_challenge_mode"
+                and params.get("enabled") is True
+            ),
+        )
+        payment_index = _first_action_index(
+            state,
+            lambda action_type, params: (
+                action_type == "toggle_feature"
+                and params.get("feature_flag") == "payment_fallback_braintree"
+                and params.get("enabled") is True
+            ),
+        )
         stage_scores = [
-            0.5 if state.feature_flags.get("ddos_challenge_mode") else 0.0,
-            0.5 if state.feature_flags.get("payment_fallback_braintree") else 0.0,
+            0.35 if ddos_enabled else 0.0,
+            0.35 if payment_enabled else 0.0,
+            0.20
+            if ddos_index is not None and payment_index is not None and ddos_index < payment_index
+            else 0.0,
+            0.10 if _ddos_payment_communication_score(state) >= 0.6 else 0.0,
         ]
-        if state.resolved:
-            return 1.0
-        return round(min(sum(stage_scores), 0.9), 4)
+        return round(sum(stage_scores), 4)
 
     return 0.0
 
@@ -147,8 +271,12 @@ def grade_state(state: IncidentState, task: ScenarioDefinition | str | None = No
 
     investigation = round(_investigation_score(state, resolved_task), 4)
     resolution = round(_resolution_score(state, resolved_task), 4)
-    mitigation = round(_coverage_score(state, mitigation_requirements), 4)
-    communication = round(_coverage_score(state, communication_requirements), 4)
+    if resolved_task.task_id == "ddos_payment":
+        mitigation = _ddos_payment_mitigation_score(state)
+        communication = _ddos_payment_communication_score(state)
+    else:
+        mitigation = round(_coverage_score(state, mitigation_requirements), 4)
+        communication = round(_coverage_score(state, communication_requirements), 4)
     efficiency = round(_efficiency_score(state, resolved_task), 4)
     rca = round(_rca_score(state, resolved_task), 4)
     penalties = round(_penalty_score(state), 4)
@@ -189,6 +317,8 @@ def grade_state(state: IncidentState, task: ScenarioDefinition | str | None = No
         + (weights["rca"] * rca)
         - penalties
     )
+    if resolved_task.task_id == "ddos_payment" and not state.resolved:
+        raw_score = min(raw_score, 0.65)
     overall = round(_clamp(raw_score), 4)
 
     breakdown = {

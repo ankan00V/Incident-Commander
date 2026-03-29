@@ -54,6 +54,7 @@ class ScenarioDefinition:
     title: str
     objective: str
     description: str
+    business_impact: str
     max_steps: int
     affected_users: int
     root_cause: str
@@ -80,6 +81,10 @@ TASKS: dict[str, ScenarioDefinition] = {
         description=(
             "A fresh api-gateway deploy coincides with a CPU spike to 98 percent and a "
             "P99 latency breach. Users are timing out across the product."
+        ),
+        business_impact=(
+            "Search and navigation are failing for thousands of active users, making the "
+            "incident visible across the product within minutes."
         ),
         max_steps=10,
         affected_users=8400,
@@ -156,6 +161,10 @@ TASKS: dict[str, ScenarioDefinition] = {
         description=(
             "Auth logins are failing because the primary database is saturated. A cache hit-rate "
             "collapse and a leaking session-worker are amplifying the incident."
+        ),
+        business_impact=(
+            "Login failure blocks tens of thousands of users from the product and creates a "
+            "high-cost support and trust incident if recovery is slow."
         ),
         max_steps=14,
         affected_users=47000,
@@ -275,6 +284,10 @@ TASKS: dict[str, ScenarioDefinition] = {
         description=(
             "A DDoS is saturating checkout traffic at the edge while Stripe is independently returning 503s. "
             "Revenue impact is material and the environment penalizes noisy or irrelevant actions."
+        ),
+        business_impact=(
+            "This is an active revenue and trust event: checkout is degraded, payments are failing, "
+            "and the agent must coordinate security, payments, and customer communication under pressure."
         ),
         max_steps=16,
         affected_users=230000,

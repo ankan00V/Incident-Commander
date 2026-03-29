@@ -10,7 +10,7 @@ Build a complete, real-world OpenEnv environment that an AI agent can learn from
 
 ## Submission Summary
 
-This environment targets a genuine human workflow rather than a toy control problem. The agent acts as the incident commander during a real-style outage and is evaluated not only on whether the system is restored, but also on how it gets there: investigating the right signals, choosing safe mitigations, escalating correctly, avoiding harmful actions, and communicating clearly when the incident demands it.
+This environment targets a genuine human workflow rather than a toy control problem. The agent acts as the incident commander during a real-style outage and is evaluated not only on whether the system is restored, but also on how it gets there: investigating the right signals, choosing safe mitigations, escalating correctly, protecting business-critical flows, avoiding harmful actions, and communicating clearly when the incident demands it.
 
 ## Why This Fits The Statement
 
@@ -20,6 +20,7 @@ This environment targets a genuine human workflow rather than a toy control prob
 - deterministic tasks with reproducible graders
 - dense reward shaping across the full trajectory
 - deployable as a Dockerized Hugging Face Space
+- replayable demo timeline for judge walkthroughs
 
 ## Task Set
 
@@ -42,14 +43,16 @@ This environment models a workflow that reliability engineers and incident comma
 - 3 deterministic tasks with clear escalation in difficulty
 - graders return continuous scores in `[0.0, 1.0]`
 - grading is tied to concrete operational outcomes, not vague free-text matching
-- hard task requires multi-action coordination, not a single obvious fix
+- hard task requires ordered mitigation, multi-team coordination, and substantive communication
 - wrong actions such as touching healthy systems or paging the wrong team are explicitly penalized
 
 ### Environment design
 
 - dense reward comes from grader-aligned progress deltas
+- unresolved incidents escalate as the agent burns steps, creating real time pressure without breaking determinism
 - repeated and invalid actions are penalized
 - destructive actions are penalized separately
+- HTTP episodes are isolated per client session, while OpenEnv WebSocket sessions use fresh env instances
 - episode boundaries are explicit and deterministic
 - state changes reflect the operational consequences of the agent's choices, which creates a learnable sequential decision problem instead of a one-shot quiz
 
@@ -63,17 +66,31 @@ This environment models a workflow that reliability engineers and incident comma
 
 ### Creativity and novelty
 
-Incident response is less common than game-like or office-toy environments, and the hard scenario combines mitigation, communications, and escalation into one episode. That makes the environment both practically useful and meaningfully different from common benchmark patterns.
+Incident response is less common than game-like or office-toy environments, and the hard scenario combines mitigation, communications, escalation, and business continuity into one episode. The key novelty is that the agent is not just solving a technical root cause. It is running the war room: protecting revenue, coordinating the right teams, and communicating externally while recovery is still in progress.
+
+## Why Judges Can Evaluate It Quickly
+
+This project is designed to be inspectable in minutes:
+
+- `/tasks` exposes the task set, difficulty ramp, and typed schemas
+- `/baseline` returns a reproducible score report across all tasks
+- `/demo` returns a step-by-step replay timeline for a single incident or the whole showcase
+- the hard task (`ddos_payment`) is a strong live demo because it clearly shows investigation, mitigation, paging, status communication, and RCA in one trajectory
 
 ## Verification Results
 
 Verified locally:
 
-- `uv run pytest -q` -> `9 passed`
+- `uv run pytest -q` -> `14 passed`
 - `uv run openenv validate` -> passed
-- `uv run python baseline.py --force-heuristic` -> average score `1.0`
+- `uv run python baseline.py --force-heuristic` -> average score `0.9733` (`ddos_payment` = `0.92`)
 - `docker build -t incident-commander:local .` -> passed
-- `uv run openenv validate --url http://127.0.0.1:8000` against the running container -> passed
+- `uv run openenv validate --url http://127.0.0.1:8001` against the running server -> passed
+
+Recommended live judge demo:
+
+- `uv run python baseline.py --demo --task-id ddos_payment --force-heuristic`
+- open `/docs`, then run `GET /tasks` and `POST /demo`
 
 ## Deployment Readiness
 
