@@ -23,10 +23,14 @@ def test_reset_and_partial_progress_signal() -> None:
 
 def test_heuristic_baseline_solves_all_tasks() -> None:
     report = run_baseline_sync(use_openai_if_available=False)
-    assert report["average_score"] >= 0.85
-    assert len(report["results"]) == 3
+    assert report["average_score"] >= 0.80
+    assert len(report["results"]) == 4
+    medium_result = next(result for result in report["results"] if result["task_id"] == "db_cascade")
     hard_result = next(result for result in report["results"] if result["task_id"] == "ddos_payment")
+    novel_result = next(result for result in report["results"] if result["task_id"] == "runbook_failure")
+    assert medium_result["score"] < 1.0
     assert hard_result["score"] < 1.0
+    assert novel_result["score"] < 1.0
     for result in report["results"]:
         assert result["resolved"] is True
         assert 0.0 <= result["score"] <= 1.0
@@ -123,6 +127,66 @@ def test_ddos_payment_rewards_correct_mitigation_order() -> None:
     )
 
     assert correct_score > wrong_order_score
+
+
+def test_runbook_failure_rewards_rejecting_bad_runbook() -> None:
+    def score_for(actions: list[IncidentAction]) -> float:
+        env = IncidentCommanderEnvironment()
+        env.reset(task_id="runbook_failure")
+        for action in actions:
+            env.step(action)
+        return grade_state(env.state).score
+
+    correct_score = score_for(
+        [
+            IncidentAction(
+                action_type="run_query",
+                query="investigate auth runbook replica lag fail-closed and primary reads",
+            ),
+            IncidentAction(
+                action_type="toggle_feature",
+                feature_flag="auth_reads_use_primary",
+                enabled=True,
+            ),
+            IncidentAction(action_type="page_team", team="database"),
+            IncidentAction(
+                action_type="post_status",
+                message=(
+                    "Login traffic is degraded because auth is failing closed on replica lag. "
+                    "We have enabled primary-read failover and are working replica recovery with the database team."
+                ),
+            ),
+            IncidentAction(
+                action_type="submit_rca",
+                message=(
+                    "The runbook was outdated. Restarting auth-service would have widened the outage because the service itself was healthy. "
+                    "Replica lag tripped fail-closed logic, and primary-read failover restored logins safely."
+                ),
+            ),
+        ]
+    )
+    wrong_score = score_for(
+        [
+            IncidentAction(action_type="restart_pod", service_name="auth-service"),
+            IncidentAction(
+                action_type="run_query",
+                query="investigate auth runbook replica lag fail-closed and primary reads",
+            ),
+            IncidentAction(
+                action_type="toggle_feature",
+                feature_flag="auth_reads_use_primary",
+                enabled=True,
+            ),
+            IncidentAction(
+                action_type="submit_rca",
+                message=(
+                    "Replica lag was involved, but restarting auth-service first made the incident worse before failover was enabled."
+                ),
+            ),
+        ]
+    )
+
+    assert correct_score > wrong_score
 
 
 def test_openai_failures_are_reported_as_fallback(monkeypatch) -> None:

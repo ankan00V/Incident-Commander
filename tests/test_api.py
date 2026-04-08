@@ -7,13 +7,14 @@ from server.environment import IncidentCommanderEnvironment
 app = app_module.app
 
 
-def test_tasks_endpoint_lists_three_tasks() -> None:
+def test_tasks_endpoint_lists_all_tasks() -> None:
     client = TestClient(app)
     response = client.get("/tasks")
     assert response.status_code == 200
     payload = response.json()
-    assert len(payload["tasks"]) == 3
+    assert len(payload["tasks"]) == 4
     assert payload["tasks"][0]["id"] == "cpu_spike"
+    assert payload["tasks"][-1]["id"] == "runbook_failure"
     assert "business_impact" in payload["tasks"][0]
     assert "action_schema" in payload
     assert "state_schema" in payload

@@ -129,6 +129,61 @@ def _ddos_payment_mitigation_score(state: IncidentState) -> float:
     return round(score, 4)
 
 
+def _db_cascade_mitigation_score(state: IncidentState) -> float:
+    restart_index = _first_action_index(
+        state,
+        lambda action_type, params: (
+            action_type == "restart_pod" and params.get("service_name") == "session-worker"
+        ),
+    )
+    routing_index = _first_action_index(
+        state,
+        lambda action_type, params: (
+            action_type == "toggle_feature"
+            and params.get("feature_flag") == "read_replica_routing"
+            and params.get("enabled") is True
+        ),
+    )
+    scale_index = _first_action_index(
+        state,
+        lambda action_type, params: (
+            action_type == "scale_service"
+            and params.get("service_name") == "db-primary"
+            and isinstance(params.get("replicas"), int)
+            and params.get("replicas") >= 2
+        ),
+    )
+    noisy_restarts = _action_indices(
+        state,
+        lambda action_type, params: (
+            action_type == "restart_pod"
+            and params.get("service_name") in {"auth-service", "api-gateway"}
+        ),
+    )
+
+    score = 0.0
+    if restart_index is not None:
+        score += 0.30
+    if routing_index is not None:
+        score += 0.25
+    if scale_index is not None:
+        score += 0.20
+    if (
+        restart_index is not None
+        and routing_index is not None
+        and scale_index is not None
+        and restart_index < routing_index < scale_index
+    ):
+        score += 0.15
+    if not noisy_restarts:
+        score += 0.10
+    return round(score, 4)
+
+
+def _db_cascade_communication_score(state: IncidentState) -> float:
+    return 1.0 if "database" in state.paged_teams else 0.0
+
+
 def _ddos_payment_communication_score(state: IncidentState) -> float:
     paged_teams = set(state.paged_teams)
     status_messages = [message.strip() for message in state.status_updates if message.strip()]
@@ -148,6 +203,57 @@ def _ddos_payment_communication_score(state: IncidentState) -> float:
         score += 0.3
     if substantive_status:
         score += 0.4
+    return round(score, 4)
+
+
+def _runbook_failure_mitigation_score(state: IncidentState) -> float:
+    query_index = _first_action_index(state, lambda action_type, params: action_type == "run_query")
+    failover_index = _first_action_index(
+        state,
+        lambda action_type, params: (
+            action_type == "toggle_feature"
+            and params.get("feature_flag") == "auth_reads_use_primary"
+            and params.get("enabled") is True
+        ),
+    )
+    bad_restart_index = _first_action_index(
+        state,
+        lambda action_type, params: (
+            action_type == "restart_pod" and params.get("service_name") == "auth-service"
+        ),
+    )
+
+    score = 0.0
+    if failover_index is not None:
+        score += 0.55
+    if (
+        query_index is not None
+        and failover_index is not None
+        and query_index < failover_index
+        and {"outdated_runbook_guidance", "replica_fail_closed"} <= set(state.investigation_finding_ids)
+    ):
+        score += 0.25
+    if bad_restart_index is None:
+        score += 0.20
+    return round(score, 4)
+
+
+def _runbook_failure_communication_score(state: IncidentState) -> float:
+    status_messages = [message.strip() for message in state.status_updates if message.strip()]
+    substantive_status = any(
+        len(message) >= 40
+        and _text_contains_any(
+            message.lower(),
+            ("login", "replica", "database", "auth", "primary", "degrad", "mitigat"),
+        )
+        for message in status_messages
+    )
+
+    score = 0.0
+    if "database" in state.paged_teams:
+        score += 0.4
+    if substantive_status:
+        score += 0.6
     return round(score, 4)
 
 
@@ -176,6 +282,33 @@ def _rca_score(state: IncidentState, task: ScenarioDefinition) -> float:
         if fallback_identified:
             score += 0.2
         return round(score, 4)
+    if task.task_id == "runbook_failure":
+        outdated_runbook = _text_contains_any(
+            text,
+            ("runbook", "outdated", "stale guidance"),
+        )
+        replica_lag = _text_contains_any(
+            text,
+            ("replica lag", "replica", "fail-closed", "circuit", "threshold"),
+        )
+        primary_reads = _text_contains_any(
+            text,
+            ("primary reads", "auth_reads_use_primary", "fail open", "primary"),
+        )
+        restart_harm = _text_contains_any(
+            text,
+            ("restart", "worse", "blast radius", "avoidable downtime"),
+        )
+        score = 0.0
+        if outdated_runbook:
+            score += 0.3
+        if replica_lag:
+            score += 0.4
+        if primary_reads:
+            score += 0.2
+        if restart_harm:
+            score += 0.1
+        return round(score, 4)
     hits = sum(1 for keyword in task.rca_keywords if keyword.lower() in text)
     return hits / max(len(task.rca_keywords), 1)
 
@@ -186,6 +319,7 @@ def _efficiency_score(state: IncidentState, task: ScenarioDefinition) -> float:
         "cpu_spike": 3,
         "db_cascade": 5,
         "ddos_payment": 7,
+        "runbook_failure": 5,
     }.get(task.task_id, task.max_steps // 2)
     excess_steps = max(steps - ideal_steps, 0)
     remaining_budget = max(task.max_steps - ideal_steps, 1)
@@ -244,6 +378,16 @@ def _resolution_score(state: IncidentState, task: ScenarioDefinition) -> float:
         ]
         return round(sum(stage_scores), 4)
 
+    if task.task_id == "runbook_failure":
+        if state.resolved:
+            return 1.0
+        partial = 0.0
+        if state.feature_flags.get("auth_reads_use_primary"):
+            partial += 0.45
+        if "replica_fail_closed" in state.investigation_finding_ids:
+            partial += 0.15
+        return round(min(partial, 0.75), 4)
+
     return 0.0
 
 
@@ -274,6 +418,12 @@ def grade_state(state: IncidentState, task: ScenarioDefinition | str | None = No
     if resolved_task.task_id == "ddos_payment":
         mitigation = _ddos_payment_mitigation_score(state)
         communication = _ddos_payment_communication_score(state)
+    elif resolved_task.task_id == "db_cascade":
+        mitigation = _db_cascade_mitigation_score(state)
+        communication = _db_cascade_communication_score(state)
+    elif resolved_task.task_id == "runbook_failure":
+        mitigation = _runbook_failure_mitigation_score(state)
+        communication = _runbook_failure_communication_score(state)
     else:
         mitigation = round(_coverage_score(state, mitigation_requirements), 4)
         communication = round(_coverage_score(state, communication_requirements), 4)
@@ -293,9 +443,9 @@ def grade_state(state: IncidentState, task: ScenarioDefinition | str | None = No
         "medium": {
             "investigation": 0.15,
             "resolution": 0.35,
-            "mitigation": 0.30,
-            "communication": 0.00,
-            "efficiency": 0.10,
+            "mitigation": 0.25,
+            "communication": 0.10,
+            "efficiency": 0.05,
             "rca": 0.10,
         },
         "hard": {
@@ -317,7 +467,7 @@ def grade_state(state: IncidentState, task: ScenarioDefinition | str | None = No
         + (weights["rca"] * rca)
         - penalties
     )
-    if resolved_task.task_id == "ddos_payment" and not state.resolved:
+    if resolved_task.difficulty == "hard" and not state.resolved:
         raw_score = min(raw_score, 0.65)
     overall = round(_clamp(raw_score), 4)
 

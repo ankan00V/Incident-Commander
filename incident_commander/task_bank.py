@@ -259,6 +259,12 @@ TASKS: dict[str, ScenarioDefinition] = {
                 description="Shift safe reads off the primary DB.",
             ),
             ActionRequirement(
+                requirement_id="page_database_team",
+                action_type="page_team",
+                team="database",
+                description="Engage the database team while the auth outage is live.",
+            ),
+            ActionRequirement(
                 requirement_id="scale_db_primary",
                 action_type="scale_service",
                 service_name="db-primary",
@@ -422,13 +428,145 @@ TASKS: dict[str, ScenarioDefinition] = {
         ),
         rca_keywords=("ddos", "stripe", "fallback", "braintree", "challenge"),
     ),
+    "runbook_failure": ScenarioDefinition(
+        task_id="runbook_failure",
+        difficulty="hard",
+        title="Ignore An Outdated Login Runbook",
+        objective=(
+            "Restore login traffic, identify why the documented runbook is wrong, coordinate the database responders, and finish with an RCA."
+        ),
+        description=(
+            "The incident runbook says to restart auth-service first, but that guidance is stale. "
+            "auth-service is healthy internally and is instead failing closed on replica lag. "
+            "Blindly following the runbook widens the outage."
+        ),
+        business_impact=(
+            "Login and session-refresh failures block tens of thousands of users. "
+            "This task rewards agents that investigate and deliberately deviate from bad operational guidance."
+        ),
+        max_steps=14,
+        affected_users=31000,
+        root_cause="outdated_runbook_and_replica_fail_closed",
+        initial_services=(
+            ServiceSeed("api-gateway", "degraded", 0.18, 2400, 4),
+            ServiceSeed("auth-service", "down", 0.72, 12000, 4),
+            ServiceSeed("db-replica", "degraded", 0.08, 1800, 2),
+            ServiceSeed("db-primary", "healthy", 0.01, 70, 2),
+            ServiceSeed("session-store", "healthy", 0.00, 18, 2),
+        ),
+        initial_logs=(
+            LogSeed(
+                "09:41:02",
+                "WARN",
+                "auth-service",
+                "Runbook step 1 still says: restart auth-service when login 5xx exceeds 5%",
+            ),
+            LogSeed(
+                "09:41:05",
+                "ERROR",
+                "auth-service",
+                "Dependency gate tripped: replica lag 11.8s exceeds 10s threshold, fail-closed mode enabled",
+            ),
+            LogSeed(
+                "09:41:07",
+                "INFO",
+                "auth-service",
+                "Process healthy, readiness 100%, no local crash loops detected",
+            ),
+            LogSeed(
+                "09:41:09",
+                "ERROR",
+                "api-gateway",
+                "POST /auth/token upstream 503 from auth-service",
+            ),
+            LogSeed(
+                "09:41:11",
+                "WARN",
+                "db-replica",
+                "Replica lag 11.8s after vacuum storm; primary remains healthy",
+            ),
+            LogSeed(
+                "09:41:14",
+                "INFO",
+                "platform-config",
+                "Feature flag auth_reads_use_primary available for incident fail-open",
+            ),
+        ),
+        initial_alerts=(
+            "ALERT: login success rate < 30% [P1]",
+            "ALERT: auth-service returning 503s [P1]",
+            "ALERT: db-replica lag > 10s [P2]",
+            "ALERT: auth runbook execution may be stale [P2]",
+        ),
+        initial_metrics={
+            "cpu_pct": 31.0,
+            "mem_pct": 54.0,
+            "req_per_sec": 950.0,
+            "error_rate": 0.31,
+            "login_success_rate": 0.24,
+            "replica_lag_s": 11.8,
+        },
+        query_findings=(
+            QueryFinding(
+                "outdated_runbook_guidance",
+                ("runbook", "restart", "outdated", "healthy", "readiness", "auth"),
+                "auth-service itself is healthy. Restarting it follows stale runbook guidance and only adds avoidable downtime.",
+            ),
+            QueryFinding(
+                "replica_fail_closed",
+                ("replica", "lag", "circuit", "fail-closed", "primary", "reads"),
+                "The real fix is to fail open onto primary reads while the replica catches up. This restores login traffic without restarting auth-service.",
+            ),
+        ),
+        required_findings=("outdated_runbook_guidance", "replica_fail_closed"),
+        required_actions=(
+            ActionRequirement(
+                requirement_id="enable_primary_read_failover",
+                action_type="toggle_feature",
+                feature_flag="auth_reads_use_primary",
+                enabled=True,
+                description="Route auth reads to the healthy primary while replica lag drains.",
+            ),
+            ActionRequirement(
+                requirement_id="page_database_team",
+                action_type="page_team",
+                team="database",
+                description="Engage the database team to drain replica lag and validate recovery.",
+            ),
+            ActionRequirement(
+                requirement_id="post_login_status",
+                action_type="post_status",
+                message_required=True,
+                description="Communicate the login impact and workaround externally.",
+            ),
+        ),
+        avoid_actions=(
+            ActionRequirement(
+                requirement_id="avoid_restarting_auth",
+                action_type="restart_pod",
+                service_name="auth-service",
+                description="Restarting auth-service widens the outage without fixing replica lag.",
+            ),
+        ),
+        rca_keywords=(
+            "runbook",
+            "outdated",
+            "replica lag",
+            "primary reads",
+            "auth-service",
+            "restart",
+        ),
+    ),
 }
 
 
 def list_tasks() -> tuple[ScenarioDefinition, ...]:
     """Return tasks in deterministic order."""
 
-    return tuple(TASKS[task_id] for task_id in ("cpu_spike", "db_cascade", "ddos_payment"))
+    return tuple(
+        TASKS[task_id]
+        for task_id in ("cpu_spike", "db_cascade", "ddos_payment", "runbook_failure")
+    )
 
 
 def get_task(task: str | ScenarioDefinition | None) -> ScenarioDefinition:

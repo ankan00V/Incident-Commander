@@ -340,10 +340,29 @@ class IncidentCommanderEnvironment(
             self._state.resolution_markers["session_worker_restarted"] = True
             self._append_log("INFO", service.name, "Restarted session-worker pods and cleared leaked DB connections")
             return DispatchResult("Restarted session-worker and cleared the leaking connection pool clients.")
+        if self._task.task_id == "db_cascade" and service.name in {"auth-service", "api-gateway"}:
+            self._record_destructive_action(f"restart_pod:{service.name}")
+            self._append_log("WARN", service.name, f"Restarted {service.name} even though the DB primary remained saturated")
+            return DispatchResult(
+                f"Restarted {service.name}, but the real bottleneck is still the exhausted database pool.",
+                destructive=True,
+            )
         if self._task.task_id == "ddos_payment" and service.name == "order-service":
             self._record_destructive_action("restart_pod:order-service")
             self._append_log("WARN", service.name, "Restarted a healthy order-service during checkout incident")
             return DispatchResult("Restarted order-service even though it was healthy, increasing blast radius.", destructive=True)
+        if self._task.task_id == "runbook_failure" and service.name == "auth-service":
+            self._state.resolution_markers["auth_service_restarted"] = True
+            self._record_destructive_action("restart_pod:auth-service")
+            self._append_log(
+                "ERROR",
+                service.name,
+                "Restarted auth-service because of stale runbook guidance; warmup added avoidable login downtime",
+            )
+            return DispatchResult(
+                "Restarted auth-service because of the stale runbook, widening the outage without fixing replica lag.",
+                destructive=True,
+            )
         self._append_log("WARN", service.name, f"Restarted {service.name}, but it was not the bottleneck")
         return DispatchResult("The restart completed, but it did not move the incident materially.")
 
@@ -368,6 +387,10 @@ class IncidentCommanderEnvironment(
         self._append_log("INFO", "pagerduty", f"Paged {team} on-call")
         if self._task.task_id == "ddos_payment" and team in {"security", "payments"}:
             return DispatchResult(f"Paged the {team} team and engaged the right responders.")
+        if self._task.task_id == "db_cascade" and team == "database":
+            return DispatchResult("Paged the database team to coordinate pool recovery and replica routing.")
+        if self._task.task_id == "runbook_failure" and team == "database":
+            return DispatchResult("Paged the database team to work the replica lag while auth traffic fails over to primary reads.")
         return DispatchResult(f"Paged team '{team}'.")
 
     def _toggle_feature(self, action: IncidentAction) -> DispatchResult:
@@ -385,6 +408,8 @@ class IncidentCommanderEnvironment(
             return DispatchResult("Enabled DDoS challenge mode at the edge with a lower false-positive profile.")
         if self._task.task_id == "ddos_payment" and feature_flag == "payment_fallback_braintree" and action.enabled:
             return DispatchResult("Enabled Braintree payment fallback to route around the Stripe outage.")
+        if self._task.task_id == "runbook_failure" and feature_flag == "auth_reads_use_primary" and action.enabled:
+            return DispatchResult("Enabled auth primary-read failover to bypass replica lag without restarting auth-service.")
         return DispatchResult("Feature flag updated, but the effect on the incident is limited.")
 
     def _post_status(self, action: IncidentAction) -> DispatchResult:
@@ -448,6 +473,8 @@ class IncidentCommanderEnvironment(
             self._refresh_db_cascade()
         elif self._task.task_id == "ddos_payment":
             self._refresh_ddos_payment()
+        elif self._task.task_id == "runbook_failure":
+            self._refresh_runbook_failure()
 
     def _refresh_cpu_spike(self) -> None:
         services = _service_map(self._state.services)
@@ -748,6 +775,117 @@ class IncidentCommanderEnvironment(
             self._state.active_alerts = ["RECOVERY: checkout stabilized on challenge mode + Braintree fallback"]
             self._state.resolved = True
             return
+        self._state.resolved = False
+
+    def _refresh_runbook_failure(self) -> None:
+        services = _service_map(self._state.services)
+        api = services["api-gateway"]
+        auth = services["auth-service"]
+        replica = services["db-replica"]
+        primary = services["db-primary"]
+        session_store = services["session-store"]
+        elapsed = self._elapsed_seconds()
+
+        primary_failover = self._state.feature_flags.get("auth_reads_use_primary", False)
+        restarted_auth = bool(self._state.resolution_markers.get("auth_service_restarted"))
+
+        api.status = "degraded"
+        api.error_rate = 0.18
+        api.p99_latency_ms = 2400
+        auth.status = "down"
+        auth.error_rate = 0.72
+        auth.p99_latency_ms = 12000
+        replica.status = "degraded"
+        replica.error_rate = 0.08
+        replica.p99_latency_ms = 1800
+        primary.status = "healthy"
+        primary.error_rate = 0.01
+        primary.p99_latency_ms = 70
+        session_store.status = "healthy"
+        session_store.error_rate = 0.00
+        session_store.p99_latency_ms = 18
+
+        error_rate = 0.31
+        login_success_rate = 0.24
+        replica_lag = 11.8
+        affected_users = self._task.affected_users
+
+        if restarted_auth:
+            api.status = "down"
+            api.error_rate = 0.29
+            api.p99_latency_ms = 5200
+            auth.status = "down"
+            auth.error_rate = 0.91
+            auth.p99_latency_ms = 16000
+            error_rate = 0.42
+            login_success_rate = 0.08
+            affected_users = 42000
+
+        if primary_failover:
+            api.status = "healthy"
+            api.error_rate = 0.02
+            api.p99_latency_ms = 210
+            auth.status = "healthy"
+            auth.error_rate = 0.03
+            auth.p99_latency_ms = 260 if restarted_auth else 140
+            replica.status = "degraded"
+            replica.error_rate = 0.06
+            replica.p99_latency_ms = 1400
+            primary.status = "degraded"
+            primary.error_rate = 0.03
+            primary.p99_latency_ms = 210
+            error_rate = 0.03
+            login_success_rate = 0.97
+            affected_users = 2100
+            self._state.metrics = {
+                "cpu_pct": 34.0,
+                "mem_pct": 56.0,
+                "req_per_sec": 960.0,
+                "error_rate": error_rate,
+                "login_success_rate": login_success_rate,
+                "replica_lag_s": replica_lag,
+            }
+            self._state.active_alerts = [
+                "RECOVERY: login traffic restored on primary-read failover while replica lag drains"
+            ]
+            self._state.affected_users = affected_users
+            self._state.resolved = True
+            return
+
+        if elapsed >= 225:
+            api.status = "down"
+            api.error_rate = 0.48
+            api.p99_latency_ms = 9000
+            auth.status = "down"
+            auth.error_rate = 0.97
+            auth.p99_latency_ms = 22000
+            session_store.status = "degraded"
+            session_store.error_rate = 0.08
+            session_store.p99_latency_ms = 900
+            error_rate = 0.54
+            login_success_rate = 0.05
+            affected_users = 56000
+
+        self._state.metrics = {
+            "cpu_pct": 31.0,
+            "mem_pct": 54.0,
+            "req_per_sec": 950.0,
+            "error_rate": round(error_rate, 2),
+            "login_success_rate": round(login_success_rate, 2),
+            "replica_lag_s": replica_lag,
+        }
+        self._state.active_alerts = [
+            "ALERT: login success rate < 30% [P1]",
+            "ALERT: auth-service returning 503s [P1]",
+            "ALERT: db-replica lag > 10s [P2]",
+        ]
+        if restarted_auth:
+            self._state.active_alerts.append("ALERT: auth-service restart increased outage duration [P1]")
+        else:
+            self._state.active_alerts.append("ALERT: auth runbook execution may be stale [P2]")
+        if elapsed >= 225:
+            self._state.active_alerts.append("ALERT: api-gateway is now failing all login traffic [P0]")
+        self._state.affected_users = affected_users
         self._state.resolved = False
 
     def _elapsed_seconds(self) -> int:

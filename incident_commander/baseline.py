@@ -118,6 +118,10 @@ def _judge_takeaway(task_id: str) -> str:
             "This task is the strongest showcase because it combines security response, payment failover, "
             "cross-team coordination, and customer communication inside one revenue-critical incident."
         ),
+        "runbook_failure": (
+            "This task is novel because the documented runbook is wrong. "
+            "The agent has to investigate, reject bad instructions, and recover login traffic without widening the outage."
+        ),
     }[task_id]
 
 
@@ -245,6 +249,29 @@ def _heuristic_action(state: IncidentState) -> IncidentAction:
                 "The primary connection pool was exhausted by leaked session-worker cleanup connections while cache misses "
                 "sent extra read traffic to the primary. Restarting session-worker, enabling read replica routing, "
                 "and scaling db-primary stabilized the cache pressure and restored auth-service login traffic."
+            ),
+        )
+
+    if state.task_id == "runbook_failure":
+        if not {"outdated_runbook_guidance", "replica_fail_closed"} <= findings:
+            return IncidentAction(
+                action_type="run_query",
+                query="investigate auth runbook replica lag fail-closed circuit breaker and primary reads",
+            )
+        if not feature_flags.get("auth_reads_use_primary"):
+            return IncidentAction(
+                action_type="toggle_feature",
+                feature_flag="auth_reads_use_primary",
+                enabled=True,
+            )
+        if "database" not in paged_teams:
+            return IncidentAction(action_type="page_team", team="database")
+        return IncidentAction(
+            action_type="submit_rca",
+            message=(
+                "The login outage was not caused by a broken auth-service process. "
+                "An outdated runbook suggested restarting auth-service, but the real issue was replica lag tripping auth into fail-closed mode. "
+                "Routing auth reads to the healthy primary restored login traffic while the database team drained replica lag."
             ),
         )
 
