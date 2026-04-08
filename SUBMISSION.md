@@ -19,6 +19,7 @@ This environment targets a genuine human workflow rather than a toy control prob
 - typed action, observation, and state models
 - deterministic tasks with reproducible graders
 - dense reward shaping across the full trajectory
+- root-level `inference.py` submission harness with structured stdout logs
 - deployable as a Dockerized Hugging Face Space
 - replayable demo timeline for judge walkthroughs
 
@@ -65,6 +66,8 @@ This environment models a workflow that reliability engineers and incident comma
 - Docker build and container runtime were verified locally
 - additional `/tasks`, `/grader`, and `/baseline` endpoints are implemented
 - typed schemas are exposed and serializable
+- root `inference.py` reads `API_BASE_URL`, `MODEL_NAME`, and `HF_TOKEN`
+- `inference.py` emits the required `[START]`, `[STEP]`, and `[END]` lines to stdout
 - the environment is already prepared for Docker-based Hugging Face Space deployment
 
 ### Creativity and novelty
@@ -86,12 +89,19 @@ This project is designed to be inspectable in minutes:
 
 Verified locally:
 
-- `uv run pytest -q` -> `19 passed`
+- `uv run pytest -q` -> `22 passed`
 - `uv run openenv validate` -> passed
 - `uv run python baseline.py --force-heuristic` -> average score `0.9250` (`db_cascade` = `0.90`, `ddos_payment` = `0.92`, `runbook_failure` = `0.88`)
 - `docker build -t incident-commander:local .` -> passed
 - `uv run openenv validate --url http://127.0.0.1:8001` against the running server -> passed
 - full local HTTP flow verified for `runbook_failure`: `/reset` -> `/step` -> `/state` -> `/grader`
+
+Submission inference contract:
+
+- `inference.py` is placed in the repository root
+- it uses the OpenAI Python client against an OpenAI-compatible endpoint
+- it reads `API_BASE_URL`, `MODEL_NAME`, and `HF_TOKEN`
+- it writes `inference_results.json` for post-run inspection while keeping stdout in the required structured format
 
 Recommended live judge demo:
 

@@ -158,10 +158,15 @@ Because the grader is tied to concrete state transitions instead of only final t
 
 ## Baseline
 
-The repository includes `baseline.py`.
+The repository includes two inference entrypoints:
 
-- If `OPENAI_API_KEY` is set, it can use an OpenAI model through tool calling.
-- Without credentials, it uses a deterministic heuristic baseline.
+- `baseline.py` for local development, smoke tests, and replay demos
+- `inference.py` for the hackathon submission harness
+
+`baseline.py` can run either:
+
+- an OpenAI-compatible model when `OPENAI_API_KEY` is set
+- or the deterministic heuristic fallback when credentials are absent
 
 Run the heuristic baseline:
 
@@ -174,6 +179,24 @@ Run the OpenAI-backed baseline:
 ```bash
 OPENAI_API_KEY=... uv run python baseline.py --model gpt-4.1-mini --seed 7
 ```
+
+Submission inference harness:
+
+```bash
+API_BASE_URL=https://integrate.api.nvidia.com/v1 \
+MODEL_NAME=<provider-model-name> \
+HF_TOKEN=<api-key> \
+ENV_URL=http://127.0.0.1:8000 \
+uv run python inference.py
+```
+
+`inference.py` uses the OpenAI client against any OpenAI-compatible endpoint, reads the mandatory hackathon environment variables, and emits only the required structured stdout lines:
+
+- `[START] task=<task_name> env=<benchmark> model=<model_name>`
+- `[STEP] step=<n> action=<action_str> reward=<0.00> done=<true|false> error=<msg|null>`
+- `[END] success=<true|false> steps=<n> score=<score> rewards=<r1,r2,...,rn>`
+
+If `ENV_URL` is unset, `inference.py` falls back to `OPENENV_URL`, then `SPACE_URL`, then `SPACE_HOST`, then `http://127.0.0.1:$PORT`.
 
 Verified local heuristic baseline:
 
@@ -244,6 +267,16 @@ Runtime validation:
 ```bash
 uv run python -m uvicorn server.app:app --host 127.0.0.1 --port 8000
 uv run openenv validate --url http://127.0.0.1:8000
+```
+
+Submission harness smoke test:
+
+```bash
+uv run python -m uvicorn server.app:app --host 127.0.0.1 --port 8000
+API_BASE_URL=https://integrate.api.nvidia.com/v1 \
+MODEL_NAME=<provider-model-name> \
+HF_TOKEN=<api-key> \
+uv run python inference.py
 ```
 
 ## Hugging Face Space Deployment
