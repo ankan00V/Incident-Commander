@@ -41,7 +41,7 @@ The distinctive idea is that the agent is not only fixing infrastructure. It is 
 
 - Standard OpenEnv API: `reset()` / `step()` / `state()`
 - Typed Pydantic models for action, observation, and state
-- 3 deterministic tasks with easy -> medium -> hard progression
+- 4 deterministic tasks with easy -> medium -> hard progression plus an adversarial runbook scenario
 - Dense reward shaping across the trajectory
 - Step-based incident escalation so unresolved outages worsen as turns are burned
 - Programmatic grader with scores in `[0.0, 1.0]`
@@ -56,14 +56,16 @@ The distinctive idea is that the agent is not only fixing infrastructure. It is 
 | `cpu_spike` | Easy | Roll back a bad `api-gateway` deploy causing CPU and latency regression |
 | `db_cascade` | Medium | Stop a DB connection-pool cascade, restore auth, and relieve primary pressure |
 | `ddos_payment` | Hard | Mitigate a DDoS while activating payment fallback and coordinating response |
+| `runbook_failure` | Hard | Ignore an outdated auth runbook, fail over reads safely, and restore login traffic |
 
-The hard task is intentionally not a single-fix puzzle. It requires traffic mitigation, payments failover, correct team escalation, and user-facing communication, while penalizing the kinds of wrong actions a real incident commander should avoid.
+The hard tasks are intentionally not single-fix puzzles. One combines traffic mitigation, payments failover, correct team escalation, and user-facing communication. The other rewards agents that investigate and deliberately reject stale runbook guidance instead of blindly restarting a healthy service.
 
 Business stakes by task:
 
 - `cpu_spike`: search and navigation are failing for 8,400 users after a bad deploy
 - `db_cascade`: 47,000 users are blocked from login while the primary DB pool is exhausted
 - `ddos_payment`: 230,000 users are exposed to a live revenue and trust incident across security and payments domains
+- `runbook_failure`: 31,000 users are blocked from login because an outdated runbook encourages a harmful mitigation
 
 ## Action Space
 
@@ -178,11 +180,12 @@ Verified local heuristic baseline:
 | Task | Score |
 | --- | --- |
 | `cpu_spike` | `1.0000` |
-| `db_cascade` | `1.0000` |
+| `db_cascade` | `0.9000` |
 | `ddos_payment` | `0.9200` |
-| Average | `0.9733` |
+| `runbook_failure` | `0.8800` |
+| Average | `0.9250` |
 
-The heuristic baseline is a reproducibility and smoke-test fallback, not the benchmark target. The hard task is intentionally no longer a perfect-score oracle for the deterministic policy: it rewards correct mitigation order, cross-team coordination, substantive communication, and avoiding noisy actions on healthy systems.
+The heuristic baseline is a reproducibility and smoke-test fallback, not the benchmark target. The environment is intentionally no longer a perfect-score oracle for the deterministic policy beyond the easy task. The medium task now rewards better sequencing and live coordination, while both hard tasks reward investigation, safer ordering, communication quality, and avoiding noisy actions on healthy systems.
 
 ## Judge Demo
 

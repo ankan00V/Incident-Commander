@@ -29,8 +29,9 @@ This environment targets a genuine human workflow rather than a toy control prob
 | `cpu_spike` | Easy | Identify a bad deploy and roll back safely |
 | `db_cascade` | Medium | Relieve pool exhaustion, restore auth, and reduce DB pressure |
 | `ddos_payment` | Hard | Mitigate edge traffic, activate payment fallback, coordinate teams, and communicate externally |
+| `runbook_failure` | Hard | Reject stale runbook guidance, fail over auth reads safely, and restore login traffic |
 
-The difficulty progression is deliberate. The easy task is a mostly single-root-cause rollback. The medium task introduces cascading failure and multiple operational levers. The hard task adds coordination and communication pressure on top of technical mitigation.
+The difficulty progression is deliberate. The easy task is a mostly single-root-cause rollback. The medium task introduces cascading failure and multiple operational levers. The two hard tasks add coordination and communication pressure on top of technical mitigation, with the final task explicitly testing whether the agent can reason against bad instructions.
 
 ## Why This Environment Should Score Well
 
@@ -40,10 +41,12 @@ This environment models a workflow that reliability engineers and incident comma
 
 ### Task and grader quality
 
-- 3 deterministic tasks with clear escalation in difficulty
+- 4 deterministic tasks with clear escalation in difficulty
 - graders return continuous scores in `[0.0, 1.0]`
 - grading is tied to concrete operational outcomes, not vague free-text matching
-- hard task requires ordered mitigation, multi-team coordination, and substantive communication
+- the medium task rewards correct mitigation ordering and live database-team escalation instead of giving an easy perfect score
+- one hard task requires ordered mitigation, multi-team coordination, and substantive communication
+- the other hard task punishes blindly following an outdated runbook and rewards independent investigation
 - wrong actions such as touching healthy systems or paging the wrong team are explicitly penalized
 
 ### Environment design
@@ -68,6 +71,8 @@ This environment models a workflow that reliability engineers and incident comma
 
 Incident response is less common than game-like or office-toy environments, and the hard scenario combines mitigation, communications, escalation, and business continuity into one episode. The key novelty is that the agent is not just solving a technical root cause. It is running the war room: protecting revenue, coordinating the right teams, and communicating externally while recovery is still in progress.
 
+The newest task adds a second kind of novelty: the environment includes adversarial operational guidance. A strong agent must recognize that the documented runbook is stale and intentionally deviate from it.
+
 ## Why Judges Can Evaluate It Quickly
 
 This project is designed to be inspectable in minutes:
@@ -75,17 +80,18 @@ This project is designed to be inspectable in minutes:
 - `/tasks` exposes the task set, difficulty ramp, and typed schemas
 - `/baseline` returns a reproducible score report across all tasks
 - `/demo` returns a step-by-step replay timeline for a single incident or the whole showcase
-- the hard task (`ddos_payment`) is a strong live demo because it clearly shows investigation, mitigation, paging, status communication, and RCA in one trajectory
+- the hard tasks (`ddos_payment` and `runbook_failure`) are strong live demos because they show different kinds of reasoning failure: noisy mitigation versus blind runbook-following
 
 ## Verification Results
 
 Verified locally:
 
-- `uv run pytest -q` -> `14 passed`
+- `uv run pytest -q` -> `19 passed`
 - `uv run openenv validate` -> passed
-- `uv run python baseline.py --force-heuristic` -> average score `0.9733` (`ddos_payment` = `0.92`)
+- `uv run python baseline.py --force-heuristic` -> average score `0.9250` (`db_cascade` = `0.90`, `ddos_payment` = `0.92`, `runbook_failure` = `0.88`)
 - `docker build -t incident-commander:local .` -> passed
 - `uv run openenv validate --url http://127.0.0.1:8001` against the running server -> passed
+- full local HTTP flow verified for `runbook_failure`: `/reset` -> `/step` -> `/state` -> `/grader`
 
 Recommended live judge demo:
 
