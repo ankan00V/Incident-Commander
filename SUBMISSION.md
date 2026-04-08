@@ -66,7 +66,7 @@ This environment models a workflow that reliability engineers and incident comma
 - Docker build and container runtime were verified locally
 - additional `/tasks`, `/grader`, and `/baseline` endpoints are implemented
 - typed schemas are exposed and serializable
-- root `inference.py` reads `API_BASE_URL`, `MODEL_NAME`, and `HF_TOKEN`
+- root `inference.py` requires `HF_TOKEN` and supports `API_BASE_URL` / `MODEL_NAME` overrides, with NVIDIA-compatible defaults baked in
 - `inference.py` emits the required `[START]`, `[STEP]`, and `[END]` lines to stdout
 - the environment is already prepared for Docker-based Hugging Face Space deployment
 
@@ -89,18 +89,20 @@ This project is designed to be inspectable in minutes:
 
 Verified locally:
 
-- `uv run pytest -q` -> `22 passed`
+- `uv run pytest -q` -> `28 passed`
 - `uv run openenv validate` -> passed
 - `uv run python baseline.py --force-heuristic` -> average score `0.9250` (`db_cascade` = `0.90`, `ddos_payment` = `0.92`, `runbook_failure` = `0.88`)
 - `docker build -t incident-commander:local .` -> passed
 - `uv run openenv validate --url http://127.0.0.1:8001` against the running server -> passed
 - full local HTTP flow verified for `runbook_failure`: `/reset` -> `/step` -> `/state` -> `/grader`
+- `inference.py` defaults to NVIDIA's OpenAI-compatible endpoint and can be redirected with `API_BASE_URL` / `MODEL_NAME`
+- `./validate-submission.sh <space-url> .` is included for local preflight checks
 
 Submission inference contract:
 
 - `inference.py` is placed in the repository root
 - it uses the OpenAI Python client against an OpenAI-compatible endpoint
-- it reads `API_BASE_URL`, `MODEL_NAME`, and `HF_TOKEN`
+- it requires `HF_TOKEN` and supports `API_BASE_URL` / `MODEL_NAME` overrides
 - it writes `inference_results.json` for post-run inspection while keeping stdout in the required structured format
 
 Recommended live judge demo:

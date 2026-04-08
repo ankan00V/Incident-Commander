@@ -183,20 +183,20 @@ OPENAI_API_KEY=... uv run python baseline.py --model gpt-4.1-mini --seed 7
 Submission inference harness:
 
 ```bash
-API_BASE_URL=https://integrate.api.nvidia.com/v1 \
-MODEL_NAME=<provider-model-name> \
 HF_TOKEN=<api-key> \
 ENV_URL=http://127.0.0.1:8000 \
 uv run python inference.py
 ```
 
-`inference.py` uses the OpenAI client against any OpenAI-compatible endpoint, reads the mandatory hackathon environment variables, and emits only the required structured stdout lines:
+`inference.py` uses the OpenAI client against any OpenAI-compatible endpoint and emits only the required structured stdout lines:
 
 - `[START] task=<task_name> env=<benchmark> model=<model_name>`
 - `[STEP] step=<n> action=<action_str> reward=<0.00> done=<true|false> error=<msg|null>`
 - `[END] success=<true|false> steps=<n> score=<score> rewards=<r1,r2,...,rn>`
 
-If `ENV_URL` is unset, `inference.py` falls back to `OPENENV_URL`, then `SPACE_URL`, then `SPACE_HOST`, then `http://127.0.0.1:$PORT`.
+By default, `inference.py` targets NVIDIA's OpenAI-compatible endpoint (`https://integrate.api.nvidia.com/v1`) with `meta/llama-3.1-8b-instruct`. You can override both with `API_BASE_URL` and `MODEL_NAME`.
+
+If `ENV_URL` is unset, `inference.py` falls back to `OPENENV_URL`, then `SPACE_URL`, then `SPACE_HOST`, then `http://127.0.0.1:$PORT`. `HF_TOKEN` remains required.
 
 Verified local heuristic baseline:
 
@@ -273,10 +273,22 @@ Submission harness smoke test:
 
 ```bash
 uv run python -m uvicorn server.app:app --host 127.0.0.1 --port 8000
+HF_TOKEN=<api-key> uv run python inference.py
+```
+
+Override provider or model when needed:
+
+```bash
 API_BASE_URL=https://integrate.api.nvidia.com/v1 \
-MODEL_NAME=<provider-model-name> \
+MODEL_NAME=meta/llama-3.1-70b-instruct \
 HF_TOKEN=<api-key> \
 uv run python inference.py
+```
+
+Pre-submission helper:
+
+```bash
+./validate-submission.sh https://your-space.hf.space .
 ```
 
 ## Hugging Face Space Deployment

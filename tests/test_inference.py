@@ -7,9 +7,9 @@ def test_load_config_requires_submission_env_vars() -> None:
     try:
         inference.load_config({})
     except ValueError as exc:
-        assert "API_BASE_URL" in str(exc)
+        assert "HF_TOKEN" in str(exc)
     else:
-        raise AssertionError("load_config should fail when required variables are missing")
+        raise AssertionError("load_config should fail when HF_TOKEN is missing")
 
 
 def test_resolve_env_url_prefers_explicit_env_url() -> None:

@@ -7,10 +7,11 @@ MANDATORY STDOUT FORMAT:
 [STEP] step=<n> action=<action_str> reward=<0.00> done=<true|false> error=<msg|null>
 [END] success=<true|false> steps=<n> score=<score> rewards=<r1,r2,...,rn>
 
-Required environment variables:
-- API_BASE_URL: OpenAI-compatible LLM endpoint
-- MODEL_NAME: model identifier
-- HF_TOKEN: API key for the LLM provider
+Submission environment variables:
+- API_BASE_URL: OpenAI-compatible LLM endpoint (defaulted)
+- MODEL_NAME: model identifier (defaulted)
+- HF_TOKEN: API key for the LLM provider (no default)
+- LOCAL_IMAGE_NAME: optional (used only when from_docker_image() is involved)
 
 Optional environment variables:
 - ENV_URL / OPENENV_URL / SPACE_URL: environment API base URL
@@ -36,6 +37,15 @@ from incident_commander.models import IncidentAction
 
 BENCHMARK = "incident-commander"
 DEFAULT_PORT = "8000"
+DEFAULT_API_BASE_URL = "https://integrate.api.nvidia.com/v1"
+DEFAULT_MODEL_NAME = "meta/llama-3.1-8b-instruct"
+
+# Required by submission checklist.
+API_BASE_URL = os.getenv("API_BASE_URL", DEFAULT_API_BASE_URL)
+MODEL_NAME = os.getenv("MODEL_NAME", DEFAULT_MODEL_NAME)
+HF_TOKEN = os.getenv("HF_TOKEN")
+# Optional for docker-image based submissions.
+LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
 
 SYSTEM_PROMPT = (
     "You are the incident commander for a live production outage. "
@@ -180,11 +190,11 @@ class InferenceConfig:
     max_model_retries: int = 2
 
 
-def _require_env(name: str, environ: dict[str, str]) -> str:
-    value = environ.get(name, "").strip()
-    if not value:
+def _require_value(name: str, value: str | None) -> str:
+    normalized = (value or "").strip()
+    if not normalized:
         raise ValueError(f"Missing required environment variable: {name}")
-    return value
+    return normalized
 
 
 def resolve_env_url(environ: dict[str, str] | None = None) -> str:
@@ -205,13 +215,27 @@ def resolve_env_url(environ: dict[str, str] | None = None) -> str:
 
 
 def load_config(environ: dict[str, str] | None = None) -> InferenceConfig:
-    environ = environ or os.environ
+    if environ is None:
+        environ = os.environ
+        api_base_url = _require_value("API_BASE_URL", API_BASE_URL)
+        model_name = _require_value("MODEL_NAME", MODEL_NAME)
+        api_key = _require_value("HF_TOKEN", HF_TOKEN)
+        seed = int(environ.get("SEED", "7"))
+    else:
+        api_base_url = (
+            environ.get("API_BASE_URL", DEFAULT_API_BASE_URL).strip() or DEFAULT_API_BASE_URL
+        )
+        model_name = (
+            environ.get("MODEL_NAME", DEFAULT_MODEL_NAME).strip() or DEFAULT_MODEL_NAME
+        )
+        api_key = _require_value("HF_TOKEN", environ.get("HF_TOKEN"))
+        seed = int(environ.get("SEED", "7"))
     return InferenceConfig(
-        api_base_url=_require_env("API_BASE_URL", environ),
-        model_name=_require_env("MODEL_NAME", environ),
-        api_key=_require_env("HF_TOKEN", environ),
+        api_base_url=api_base_url,
+        model_name=model_name,
+        api_key=api_key,
         env_url=resolve_env_url(environ),
-        seed=int(environ.get("SEED", "7")),
+        seed=seed,
     )
 
 
