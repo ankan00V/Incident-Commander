@@ -10,6 +10,7 @@ from typing import Any
 from uuid import uuid4
 
 from fastapi import FastAPI, Header, HTTPException, Request, Response
+from fastapi.responses import RedirectResponse
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, Field
 
@@ -161,6 +162,24 @@ def root() -> dict[str, str]:
     """Simple root endpoint for container and manual checks."""
 
     return {"status": "healthy", "env": "incident_commander"}
+
+
+@app.get("/app", include_in_schema=False)
+@app.get("/app/", include_in_schema=False)
+@app.get("/app/{_rest:path}", include_in_schema=False)
+def huggingface_app_path(_rest: str = "") -> RedirectResponse:
+    """Compatibility route for Spaces App tab path handling."""
+
+    return RedirectResponse(url="/docs", status_code=307)
+
+
+@app.get("/web", include_in_schema=False)
+@app.get("/web/", include_in_schema=False)
+@app.get("/web/{_rest:path}", include_in_schema=False)
+def huggingface_web_path(_rest: str = "") -> RedirectResponse:
+    """Compatibility route for Spaces embed base_path=/web."""
+
+    return RedirectResponse(url="/docs", status_code=307)
 
 
 @app.post("/reset", response_model=ResetResponse)
