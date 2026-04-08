@@ -182,24 +182,53 @@ def huggingface_web_path(_rest: str = "") -> RedirectResponse:
     return RedirectResponse(url="/docs", status_code=307)
 
 
-@app.post("/reset", response_model=ResetResponse)
-def reset_endpoint(
-    request: ResetRequest,
+def _reset_session(
+    request: ResetRequest | None,
     response: Response,
     http_request: Request,
-    x_session_id: str | None = Header(default=None),
+    x_session_id: str | None,
 ) -> ResetResponse:
-    """Reset an isolated HTTP episode and persist its session via cookie or header."""
+    """Shared reset implementation for root and compatibility routes."""
 
     session_hint = _extract_session_id(http_request, x_session_id)
     session_id, session = _create_or_replace_http_session(session_hint)
-    reset_kwargs = request.model_dump(exclude_unset=True)
+    reset_payload = request or ResetRequest()
+    reset_kwargs = reset_payload.model_dump(exclude_unset=True)
     with session.lock:
         observation = session.env.reset(**reset_kwargs)
     serialized = serialize_observation(observation)
     response.set_cookie(_SESSION_COOKIE, session_id, httponly=True, samesite="lax")
     response.headers["X-Session-Id"] = session_id
     return ResetResponse(**serialized)
+
+
+@app.post("/reset", response_model=ResetResponse)
+def reset_endpoint(
+    response: Response,
+    http_request: Request,
+    request: ResetRequest | None = None,
+    x_session_id: str | None = Header(default=None),
+) -> ResetResponse:
+    """Reset an isolated HTTP episode and persist its session via cookie or header."""
+
+    return _reset_session(request, response, http_request, x_session_id)
+
+
+@app.post("/web/reset", include_in_schema=False, response_model=ResetResponse)
+@app.post("/app/reset", include_in_schema=False, response_model=ResetResponse)
+@app.post("/spaces/{owner}/{space}/reset", include_in_schema=False, response_model=ResetResponse)
+def reset_compat_endpoint(
+    response: Response,
+    http_request: Request,
+    request: ResetRequest | None = None,
+    owner: str | None = None,
+    space: str | None = None,
+    x_session_id: str | None = Header(default=None),
+) -> ResetResponse:
+    """Compatibility aliases for external checkers that append /reset to varied base paths."""
+
+    _ = (owner, space)
+    return _reset_session(request, response, http_request, x_session_id)
 
 
 @app.post("/step", response_model=StepResponse)

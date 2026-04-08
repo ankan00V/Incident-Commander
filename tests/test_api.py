@@ -84,6 +84,15 @@ def test_http_reset_step_and_grader_flow() -> None:
     assert "breakdown" in grader_payload
 
 
+def test_http_reset_allows_empty_body() -> None:
+    client = TestClient(app)
+    reset_response = client.post("/reset")
+    assert reset_response.status_code == 200
+    payload = reset_response.json()
+    assert "observation" in payload
+    assert payload["done"] is False
+
+
 def test_http_sessions_are_isolated_per_client() -> None:
     client_a = TestClient(app)
     client_b = TestClient(app)
