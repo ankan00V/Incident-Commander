@@ -40,8 +40,8 @@ BENCHMARK = "incident-commander"
 DEFAULT_PORT = "8000"
 DEFAULT_API_BASE_URL = "https://integrate.api.nvidia.com/v1"
 DEFAULT_MODEL_NAME = "meta/llama-3.1-8b-instruct"
-MIN_SCORE = 0.0001
-MAX_SCORE = 0.9999
+MIN_SCORE = 0.01
+MAX_SCORE = 0.99
 
 # Required by submission checklist.
 API_BASE_URL = os.getenv("API_BASE_URL", "https://integrate.api.nvidia.com/v1")

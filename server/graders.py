@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from server.scenarios import SCENARIOS
 
-_EPSILON = 0.0001
+_EPSILON = 0.01
 
 
 def _clamp_open_interval(score: float) -> float:

@@ -20,7 +20,7 @@ def _clamp(score: float) -> float:
     return max(0.0, min(score, 1.0))
 
 
-def _clamp_open_interval(score: float, epsilon: float = 0.0001) -> float:
+def _clamp_open_interval(score: float, epsilon: float = 0.01) -> float:
     """Clamp to the strict open interval (0, 1) for validator compatibility."""
 
     return max(epsilon, min(score, 1.0 - epsilon))
