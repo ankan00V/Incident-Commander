@@ -419,22 +419,24 @@ def grade_state(state: IncidentState, task: ScenarioDefinition | str | None = No
         if requirement.action_type not in {"page_team", "post_status"}
     )
 
-    investigation = round(_investigation_score(state, resolved_task), 4)
-    resolution = round(_resolution_score(state, resolved_task), 4)
+    investigation = round(_clamp_open_interval(_investigation_score(state, resolved_task)), 4)
+    resolution = round(_clamp_open_interval(_resolution_score(state, resolved_task)), 4)
     if resolved_task.task_id == "ddos_payment":
-        mitigation = _ddos_payment_mitigation_score(state)
-        communication = _ddos_payment_communication_score(state)
+        mitigation = _clamp_open_interval(_ddos_payment_mitigation_score(state))
+        communication = _clamp_open_interval(_ddos_payment_communication_score(state))
     elif resolved_task.task_id == "db_cascade":
-        mitigation = _db_cascade_mitigation_score(state)
-        communication = _db_cascade_communication_score(state)
+        mitigation = _clamp_open_interval(_db_cascade_mitigation_score(state))
+        communication = _clamp_open_interval(_db_cascade_communication_score(state))
     elif resolved_task.task_id == "runbook_failure":
-        mitigation = _runbook_failure_mitigation_score(state)
-        communication = _runbook_failure_communication_score(state)
+        mitigation = _clamp_open_interval(_runbook_failure_mitigation_score(state))
+        communication = _clamp_open_interval(_runbook_failure_communication_score(state))
     else:
-        mitigation = round(_coverage_score(state, mitigation_requirements), 4)
-        communication = round(_coverage_score(state, communication_requirements), 4)
-    efficiency = round(_efficiency_score(state, resolved_task), 4)
-    rca = round(_rca_score(state, resolved_task), 4)
+        mitigation = _clamp_open_interval(_coverage_score(state, mitigation_requirements))
+        communication = _clamp_open_interval(_coverage_score(state, communication_requirements))
+    mitigation = round(mitigation, 4)
+    communication = round(communication, 4)
+    efficiency = round(_clamp_open_interval(_efficiency_score(state, resolved_task)), 4)
+    rca = round(_clamp_open_interval(_rca_score(state, resolved_task)), 4)
     penalties = round(_penalty_score(state), 4)
 
     weights = {
