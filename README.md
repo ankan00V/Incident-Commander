@@ -257,6 +257,7 @@ uv run python -m uvicorn server.app:app --host 127.0.0.1 --port 8000
 Then open:
 
 - `http://127.0.0.1:8000/docs`
+- `GET /about`
 - `GET /tasks`
 - `POST /demo`
 - `POST /baseline`
@@ -362,8 +363,10 @@ Standard OpenEnv endpoints:
 
 Additional evaluation endpoints:
 
+- `GET /about`
 - `GET /tasks`
 - `POST /grader`
 - `POST /baseline`
+- `POST /demo`
 
 For manual HTTP clients, `/reset` sets a session cookie and also returns `X-Session-Id`. If you are not using a stateful client, echo that header back to `/step` and `/state`.

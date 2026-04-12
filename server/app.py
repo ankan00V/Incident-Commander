@@ -6,7 +6,7 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from threading import Lock
 from time import time
-from typing import Any
+from typing import Any, get_args
 from uuid import uuid4
 
 from fastapi import FastAPI, Header, HTTPException, Request, Response
@@ -25,6 +25,7 @@ from server.environment import IncidentCommanderEnvironment
 
 _SESSION_COOKIE = "openenv_session_id"
 _MAX_HTTP_SESSIONS = 64
+_BENCHMARK_ID = "incident_commander"
 
 
 @dataclass
@@ -161,7 +162,25 @@ _drop_route("/state")
 def root() -> dict[str, str]:
     """Simple root endpoint for container and manual checks."""
 
-    return {"status": "healthy", "env": "incident_commander"}
+    return {"status": "healthy", "env": _BENCHMARK_ID}
+
+
+@app.get("/about")
+def about_endpoint() -> dict[str, Any]:
+    """Judge-friendly metadata for quick repository and runtime inspection."""
+
+    task_ids = [task.task_id for task in list_tasks()]
+    return {
+        "env_id": _BENCHMARK_ID,
+        "title": "Incident Commander OpenEnv API",
+        "deterministic": True,
+        "task_count": len(task_ids),
+        "tasks": task_ids,
+        "difficulty_levels": ["easy", "medium", "hard"],
+        "action_types": sorted(get_args(IncidentAction.model_fields["action_type"].annotation)),
+        "openenv_endpoints": ["/reset", "/step", "/state", "/schema", "/health"],
+        "judge_endpoints": ["/tasks", "/grader", "/baseline", "/demo"],
+    }
 
 
 @app.get("/app", include_in_schema=False)
@@ -292,6 +311,7 @@ def tasks_endpoint() -> dict[str, Any]:
     return {
         "tasks": tasks,
         "action_schema": IncidentAction.model_json_schema(),
+        "observation_schema": IncidentObservation.model_json_schema(),
         "state_schema": IncidentState.model_json_schema(),
     }
 

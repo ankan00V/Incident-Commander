@@ -82,7 +82,8 @@ The newest task adds a second kind of novelty: the environment includes adversar
 
 This project is designed to be inspectable in minutes:
 
-- `/tasks` exposes the task set, difficulty ramp, and typed schemas
+- `/about` exposes quick judge metadata (task count, action types, endpoint map)
+- `/tasks` exposes the task set, difficulty ramp, and typed action/observation/state schemas
 - `/baseline` returns a reproducible score report across all tasks
 - `/demo` returns a step-by-step replay timeline for a single incident or the whole showcase
 - the hard tasks (`ddos_payment` and `runbook_failure`) are strong live demos because they show different kinds of reasoning failure: noisy mitigation versus blind runbook-following

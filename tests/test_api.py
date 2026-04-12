@@ -17,7 +17,20 @@ def test_tasks_endpoint_lists_all_tasks() -> None:
     assert payload["tasks"][-1]["id"] == "runbook_failure"
     assert "business_impact" in payload["tasks"][0]
     assert "action_schema" in payload
+    assert "observation_schema" in payload
     assert "state_schema" in payload
+
+
+def test_about_endpoint_exposes_judge_metadata() -> None:
+    client = TestClient(app)
+    response = client.get("/about")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["env_id"] == "incident_commander"
+    assert payload["deterministic"] is True
+    assert payload["task_count"] == 4
+    assert "run_query" in payload["action_types"]
+    assert "/tasks" in payload["judge_endpoints"]
 
 
 def test_demo_endpoint_returns_replay_timeline() -> None:
