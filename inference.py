@@ -31,7 +31,8 @@ from dataclasses import dataclass
 from typing import Any
 
 import httpx
-from openai import OpenAI, RateLimitError
+from openai import OpenAI
+from openai import RateLimitError
 
 from incident_commander.models import IncidentAction
 
@@ -41,8 +42,8 @@ DEFAULT_API_BASE_URL = "https://integrate.api.nvidia.com/v1"
 DEFAULT_MODEL_NAME = "meta/llama-3.1-8b-instruct"
 
 # Required by submission checklist.
-API_BASE_URL = os.getenv("API_BASE_URL", DEFAULT_API_BASE_URL)
-MODEL_NAME = os.getenv("MODEL_NAME", DEFAULT_MODEL_NAME)
+API_BASE_URL = os.getenv("API_BASE_URL", "https://integrate.api.nvidia.com/v1")
+MODEL_NAME = os.getenv("MODEL_NAME", "meta/llama-3.1-8b-instruct")
 HF_TOKEN = os.getenv("HF_TOKEN")
 # Optional for docker-image based submissions.
 LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
