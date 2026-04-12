@@ -341,3 +341,30 @@ def test_request_action_recovers_from_malformed_partial_json() -> None:
 
     assert action["action_type"] == "page_team"
     assert action["team"] == "payments"
+
+
+def test_run_episode_error_path_keeps_score_in_open_interval() -> None:
+    class FailingHttpClient:
+        def post(self, url: str, json=None, headers=None):
+            raise RuntimeError("synthetic reset failure")
+
+        def get(self, url: str, headers=None):
+            raise AssertionError("unexpected GET in failing path")
+
+    class DummyClient:
+        pass
+
+    config = inference.InferenceConfig(
+        api_base_url="https://llm.example/v1",
+        model_name="example-model",
+        api_key="secret",
+        env_url="https://env.example",
+    )
+    result = inference.run_episode(
+        client=DummyClient(),
+        http_client=FailingHttpClient(),
+        task={"task_id": "cpu_spike", "id": "cpu_spike"},
+        config=config,
+    )
+
+    assert 0.0 < result["score"] < 1.0

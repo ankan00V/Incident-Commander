@@ -4,6 +4,12 @@ from __future__ import annotations
 
 from server.scenarios import SCENARIOS
 
+_EPSILON = 0.0001
+
+
+def _clamp_open_interval(score: float) -> float:
+    return max(_EPSILON, min(score, 1.0 - _EPSILON))
+
 
 def _action_signature(action: dict) -> str:
     action_type = action.get("action_type", "")
@@ -27,15 +33,15 @@ def grade(
     elapsed_seconds: int,
     rca_text: str = "",
 ) -> float:
-    """Return a deterministic score in [0.0, 1.0] for the completed episode."""
+    """Return a deterministic score in the strict open interval (0, 1)."""
 
     scenario = SCENARIOS.get(task_id)
     if scenario is None:
-        return 0.0
+        return _EPSILON
     if actions_taken is None:
         actions_taken = actions or []
     if not actions_taken and not resolved:
-        return 0.0
+        return _EPSILON
 
     difficulty = scenario["difficulty"]
     resolution = scenario["resolution"]
@@ -119,4 +125,4 @@ def grade(
         + weights["time"] * time_score
         - destructive_penalty
     )
-    return round(max(0.0, min(raw, 1.0)), 4)
+    return round(_clamp_open_interval(raw), 4)

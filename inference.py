@@ -40,6 +40,8 @@ BENCHMARK = "incident-commander"
 DEFAULT_PORT = "8000"
 DEFAULT_API_BASE_URL = "https://integrate.api.nvidia.com/v1"
 DEFAULT_MODEL_NAME = "meta/llama-3.1-8b-instruct"
+MIN_SCORE = 0.0001
+MAX_SCORE = 0.9999
 
 # Required by submission checklist.
 API_BASE_URL = os.getenv("API_BASE_URL", "https://integrate.api.nvidia.com/v1")
@@ -756,6 +758,10 @@ def _coerce_reward(value: Any) -> float:
     return 0.0
 
 
+def _strict_score(value: float) -> float:
+    return max(MIN_SCORE, min(float(value), MAX_SCORE))
+
+
 def _format_action(action: dict[str, Any]) -> str:
     return json.dumps(action, separators=(",", ":"), sort_keys=True)
 
@@ -872,6 +878,7 @@ def run_episode(
                 break
 
         score, state_payload = _episode_score(http_client, config, session_id)
+        score = _strict_score(score)
         success = bool(state_payload.get("resolved", False))
         return {
             "task_id": task_id,
@@ -886,7 +893,7 @@ def run_episode(
         return {
             "task_id": task_id,
             "task_name": task_name,
-            "score": 0.0,
+            "score": _strict_score(0.0),
             "steps": steps_taken,
             "success": False,
             "rewards": rewards,

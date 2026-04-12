@@ -5,7 +5,7 @@ from server.graders import grade
 
 def test_easy_zero_score_on_no_actions() -> None:
     score = grade("cpu_spike", actions=[], resolved=False, elapsed_seconds=0)
-    assert score == 0.0
+    assert 0.0 < score < 0.01
 
 
 def test_easy_perfect_score() -> None:
