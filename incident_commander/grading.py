@@ -20,6 +20,12 @@ def _clamp(score: float) -> float:
     return max(0.0, min(score, 1.0))
 
 
+def _clamp_open_interval(score: float, epsilon: float = 0.0001) -> float:
+    """Clamp to the strict open interval (0, 1) for validator compatibility."""
+
+    return max(epsilon, min(score, 1.0 - epsilon))
+
+
 def _service_map(state: IncidentState) -> dict[str, ServiceStatus]:
     return {service.name: service for service in state.services}
 
@@ -469,7 +475,7 @@ def grade_state(state: IncidentState, task: ScenarioDefinition | str | None = No
     )
     if resolved_task.difficulty == "hard" and not state.resolved:
         raw_score = min(raw_score, 0.65)
-    overall = round(_clamp(raw_score), 4)
+    overall = round(_clamp_open_interval(_clamp(raw_score)), 4)
 
     breakdown = {
         "investigation": investigation,
