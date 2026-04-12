@@ -74,6 +74,17 @@ Business stakes by task:
 - `ddos_payment`: 230,000 users are exposed to a live revenue and trust incident across security and payments domains
 - `runbook_failure`: 31,000 users are blocked from login because an outdated runbook encourages a harmful mitigation
 
+## Task Variants (Anti-Overfitting)
+
+Each task now supports deterministic seeded variants to prevent policies from overfitting to one fixed log narrative.
+
+- `reset(seed=...)` maps to a deterministic variant label: `canonical`, `template_a`, `template_b`, or `template_c`
+- variants preserve the same root cause and required mitigation logic, but permute key log templates
+- the same `task_id + seed` pair always produces the same episode text and grading behavior
+- `/tasks` exposes the variant strategy under `variant_strategy`
+
+This keeps grading stable while making brittle prompt/pattern matching policies fail more often.
+
 ## Action Space
 
 The environment accepts a typed `IncidentAction` model.
@@ -217,6 +228,21 @@ Verified local heuristic baseline:
 
 The heuristic baseline is a reproducibility and smoke-test fallback, not the benchmark target. The environment is intentionally no longer a perfect-score oracle for the deterministic policy beyond the easy task. The medium task now rewards better sequencing and live coordination, while both hard tasks reward investigation, safer ordering, communication quality, and avoiding noisy actions on healthy systems.
 
+Mini benchmark matrix (`benchmark_results.json`) on all 4 tasks:
+
+| Policy | cpu_spike | db_cascade | ddos_payment | runbook_failure | avg |
+| --- | --- | --- | --- | --- | --- |
+| `heuristic` | `1.0000` | `0.9000` | `0.9200` | `0.8800` | `0.9250` |
+| `meta/llama-3.1-8b-instruct` | `0.3100` | `0.0000` | `0.2150` | `0.1700` | `0.1738` |
+| `meta/llama-3.1-70b-instruct` | `0.9329` | `0.7300` | `0.9200` | `0.8800` | `0.8657` |
+| `meta/llama-3.1-405b-instruct` | `0.9400` | `0.0000` | `0.0000` | `0.7675` | `0.4269` |
+
+Reproduce this table:
+
+```bash
+HF_TOKEN=<api-key> uv run python scripts/benchmark_matrix.py --out benchmark_results.json
+```
+
 ## Judge Demo
 
 This repository includes a replay-friendly demo path so judges can see the environment behave like a real operational system instead of only reading a final score.
@@ -239,6 +265,47 @@ HTTP version of the same demo:
 
 - `POST /demo` for a single replayable incident walkthrough
 - `POST /demo` with `include_all_tasks=true` for a full judge showcase across all tasks
+
+## Judge Quick Eval
+
+Run server:
+
+```bash
+uv run python -m uvicorn server.app:app --host 127.0.0.1 --port 8000
+```
+
+1) Metadata sanity check:
+
+```bash
+curl -s http://127.0.0.1:8000/about
+```
+
+Expected outcome: JSON contains `"env_id":"incident_commander"`, `"task_count":4`, and `task_variants`.
+
+2) Seeded reset check:
+
+```bash
+curl -s -X POST http://127.0.0.1:8000/reset -H 'Content-Type: application/json' -d '{"task_id":"ddos_payment","seed":7}'
+```
+
+Expected outcome: response includes `observation.task_variant` (for seed `7`, `template_c`) and `done:false`.
+
+3) OpenEnv contract check:
+
+```bash
+uv run openenv validate --url http://127.0.0.1:8000
+```
+
+Expected outcome: command exits success and prints `[OK] ... Ready for multi-mode deployment`.
+
+## Failure Analysis
+
+Common bad policies and why the grader catches them:
+
+- blind restart policy: restarting healthy or non-bottleneck services records destructive actions and loses mitigation points
+- single-fix obsession: partial fixes (for example only payment fallback without DDoS mitigation) leave key coverage gaps and lower resolution scores
+- no-investigation shortcuts: skipping required findings fails investigation metrics and hard-task sequencing bonuses
+- stale-runbook obedience: `runbook_failure` penalizes auth-service restarts and rewards explicit failover-to-primary reasoning
 
 ## Local Setup
 
@@ -330,7 +397,7 @@ uv run openenv validate --url https://<space-url>
 
 - real-world environment: yes
 - typed OpenEnv models and standard API: yes
-- 3 tasks with deterministic graders: yes
+- 4 tasks with deterministic graders: yes
 - dense reward with partial progress: yes
 - baseline inference script: yes
 - Docker and HF Space packaging: yes

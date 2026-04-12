@@ -814,7 +814,10 @@ def run_episode(
     log_start(task=task_name, env=BENCHMARK, model=config.model_name)
 
     try:
-        reset_response = http_client.post(f"{config.env_url}/reset", json={"task_id": task_id})
+        reset_response = http_client.post(
+            f"{config.env_url}/reset",
+            json={"task_id": task_id, "seed": config.seed},
+        )
         reset_response.raise_for_status()
         session_id = reset_response.headers.get("X-Session-Id")
         reset_payload = reset_response.json()

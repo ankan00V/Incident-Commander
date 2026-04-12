@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 
 
@@ -559,6 +559,182 @@ TASKS: dict[str, ScenarioDefinition] = {
     ),
 }
 
+VARIANT_LABELS: tuple[str, ...] = (
+    "canonical",
+    "template_a",
+    "template_b",
+    "template_c",
+)
+
+LOG_TEMPLATE_VARIANTS: dict[str, dict[str, dict[str, str]]] = {
+    "cpu_spike": {
+        "template_a": {
+            "Deploy v2.4.1 started": "Rollout v2.4.1 reached 100% pods",
+            "CPU utilization rising: 72%": "Autoscaler signal: api-gateway CPU has crossed 72%",
+            "CPU utilization critical: 98%, N+1 query detected in /search endpoint": (
+                "Critical saturation at 98% CPU; profiler shows N+1 path in /search"
+            ),
+        },
+        "template_b": {
+            "Deploy v2.4.1 started": "Release train pushed api-gateway v2.4.1 live",
+            "Request queue depth exceeded 10000, dropping requests": (
+                "Ingress queue exceeded 10k entries, requests are being dropped"
+            ),
+            "Upstream api-gateway timeout after 5000ms": "api-gateway dependency timed out after 5000ms",
+        },
+        "template_c": {
+            "Deploy v2.4.1 started": "Argo rollout applied api-gateway v2.4.1",
+            "CPU utilization rising: 72%": "Compute pressure warning: gateway CPU is trending above 70%",
+            "Request queue depth exceeded 10000, dropping requests": (
+                "Queue depth breached 10k and shed load is now active"
+            ),
+        },
+    },
+    "db_cascade": {
+        "template_a": {
+            "Connection pool exhausted: 500/500 connections in use": (
+                "Primary pool exhaustion: 500 of 500 DB connections consumed"
+            ),
+            "Leaking connections detected in session cleanup job": (
+                "session-worker cleanup job is leaking persistent DB handles"
+            ),
+            "Cache hit rate dropped to 12%, DB load increasing": (
+                "Cache hit rate collapsed to 12%; read pressure on primary is spiking"
+            ),
+        },
+        "template_b": {
+            "Cannot acquire DB connection, timeout after 30s": (
+                "auth-service waited 30s for a DB slot and then timed out"
+            ),
+            "Leaking connections detected in session cleanup job": (
+                "session cleanup workers show leaked connection handles"
+            ),
+            "OOMKilled: heap dump written to /tmp/auth-20260326.hprof": (
+                "auth-service OOMKilled; heap snapshot written to /tmp/auth-20260326.hprof"
+            ),
+        },
+        "template_c": {
+            "Connection pool exhausted: 500/500 connections in use": (
+                "db-primary pool hard-capped at 500 active connections"
+            ),
+            "Auth service unavailable, user logins failing": (
+                "Login traffic is failing because auth-service cannot establish DB sessions"
+            ),
+            "Cache hit rate dropped to 12%, DB load increasing": (
+                "redis hit rate dropped to 12%; fallback reads are hammering the primary"
+            ),
+        },
+    },
+    "ddos_payment": {
+        "template_a": {
+            "Traffic spike: 4.2M req/s from 847 unique IPs, majority from AS7922": (
+                "Volumetric spike at 4.2M req/s from 847 IPs, dominated by AS7922"
+            ),
+            "Stripe upstream 503: 'Service Unavailable' — incident ref STRIPE-XYZ": (
+                "Stripe upstream returning HTTP 503 (incident ref STRIPE-XYZ)"
+            ),
+            "Fallback payment provider (Braintree) available and healthy": (
+                "Braintree fallback rail is healthy and ready for traffic shift"
+            ),
+        },
+        "template_b": {
+            "Rate limit triggers firing for /api/checkout - pattern matches DDoS signature": (
+                "Edge rate-limit triggers are firing on /api/checkout; signature matches active L7 DDoS"
+            ),
+            "Stripe upstream 503: 'Service Unavailable' — incident ref STRIPE-XYZ": (
+                "Payment upstream failure: Stripe 503 with open vendor incident STRIPE-XYZ"
+            ),
+            "Customer-facing error rate 55% on /checkout": (
+                "Public checkout failure rate has reached 55%"
+            ),
+        },
+        "template_c": {
+            "Traffic spike: 4.2M req/s from 847 unique IPs, majority from AS7922": (
+                "Attack traffic surged to 4.2M req/s across 847 source IPs (AS7922 heavy)"
+            ),
+            "Payment failed for 55,000 transactions in last 60s": (
+                "55,000 payment attempts failed in the last minute"
+            ),
+            "WAF rule 4021 partially blocking attack, false positive rate 3%": (
+                "WAF-4021 is partially effective; current false-positive rate is 3%"
+            ),
+        },
+    },
+    "runbook_failure": {
+        "template_a": {
+            "Runbook step 1 still says: restart auth-service when login 5xx exceeds 5%": (
+                "Runbook v1 step 1 still recommends restarting auth-service on login 5xx > 5%"
+            ),
+            "Dependency gate tripped: replica lag 11.8s exceeds 10s threshold, fail-closed mode enabled": (
+                "Dependency guard tripped: replica lag 11.8s > 10s, auth switched to fail-closed"
+            ),
+            "Feature flag auth_reads_use_primary available for incident fail-open": (
+                "Incident flag auth_reads_use_primary is available for emergency read fail-open"
+            ),
+        },
+        "template_b": {
+            "Runbook step 1 still says: restart auth-service when login 5xx exceeds 5%": (
+                "Legacy runbook advises auth-service restart for elevated login 5xx"
+            ),
+            "Process healthy, readiness 100%, no local crash loops detected": (
+                "auth-service process healthy; readiness 100%; crash-loop signal absent"
+            ),
+            "Replica lag 11.8s after vacuum storm; primary remains healthy": (
+                "Replica lag is 11.8s after a vacuum burst while primary stays healthy"
+            ),
+        },
+        "template_c": {
+            "Dependency gate tripped: replica lag 11.8s exceeds 10s threshold, fail-closed mode enabled": (
+                "Replica lag breached auth fail-closed threshold (11.8s vs 10s)"
+            ),
+            "POST /auth/token upstream 503 from auth-service": (
+                "api-gateway is receiving upstream 503 responses from /auth/token"
+            ),
+            "Feature flag auth_reads_use_primary available for incident fail-open": (
+                "Fail-open flag auth_reads_use_primary is ready for controlled activation"
+            ),
+        },
+    },
+}
+
+
+def list_task_variants() -> tuple[str, ...]:
+    """Return supported deterministic variant labels."""
+
+    return VARIANT_LABELS
+
+
+def variant_for_seed(seed: int | None) -> str:
+    """Map a reset seed to a deterministic task-variant label."""
+
+    if seed is None:
+        return "canonical"
+    return VARIANT_LABELS[abs(seed) % len(VARIANT_LABELS)]
+
+
+def get_task_variant(
+    task: str | ScenarioDefinition | None,
+    seed: int | None = None,
+) -> tuple[ScenarioDefinition, str]:
+    """Resolve a task and apply deterministic log-template permutations based on seed."""
+
+    resolved_task = get_task(task)
+    variant_label = variant_for_seed(seed)
+    if variant_label == "canonical":
+        return resolved_task, variant_label
+
+    task_variants = LOG_TEMPLATE_VARIANTS.get(resolved_task.task_id, {})
+    template_mapping = task_variants.get(variant_label, {})
+    if not template_mapping:
+        return resolved_task, variant_label
+
+    variant_logs = tuple(
+        replace(log, message=template_mapping.get(log.message, log.message))
+        for log in resolved_task.initial_logs
+    )
+    variant_task = replace(resolved_task, initial_logs=variant_logs)
+    return variant_task, variant_label
+
 
 def list_tasks() -> tuple[ScenarioDefinition, ...]:
     """Return tasks in deterministic order."""
@@ -584,11 +760,15 @@ def get_task(task: str | ScenarioDefinition | None) -> ScenarioDefinition:
 __all__ = [
     "ActionRequirement",
     "Difficulty",
+    "LOG_TEMPLATE_VARIANTS",
     "LogSeed",
     "QueryFinding",
     "ScenarioDefinition",
     "ServiceSeed",
     "TASKS",
     "get_task",
+    "get_task_variant",
     "list_tasks",
+    "list_task_variants",
+    "variant_for_seed",
 ]

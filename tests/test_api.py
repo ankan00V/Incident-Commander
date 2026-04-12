@@ -19,6 +19,8 @@ def test_tasks_endpoint_lists_all_tasks() -> None:
     assert "action_schema" in payload
     assert "observation_schema" in payload
     assert "state_schema" in payload
+    assert payload["variant_strategy"]["enabled"] is True
+    assert "template_a" in payload["variant_strategy"]["variants"]
 
 
 def test_about_endpoint_exposes_judge_metadata() -> None:
@@ -29,6 +31,7 @@ def test_about_endpoint_exposes_judge_metadata() -> None:
     assert payload["env_id"] == "incident_commander"
     assert payload["deterministic"] is True
     assert payload["task_count"] == 4
+    assert "canonical" in payload["task_variants"]
     assert "run_query" in payload["action_types"]
     assert "/tasks" in payload["judge_endpoints"]
 

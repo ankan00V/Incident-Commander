@@ -21,6 +21,27 @@ def test_reset_and_partial_progress_signal() -> None:
     assert "deploy_regression" in env.state.investigation_finding_ids
 
 
+def test_seeded_task_variants_are_deterministic() -> None:
+    env_a = IncidentCommanderEnvironment()
+    env_b = IncidentCommanderEnvironment()
+    env_c = IncidentCommanderEnvironment()
+
+    obs_a = env_a.reset(task_id="db_cascade", seed=5)
+    obs_b = env_b.reset(task_id="db_cascade", seed=5)
+    obs_c = env_c.reset(task_id="db_cascade", seed=6)
+
+    logs_a = [entry.message for entry in env_a.state.logs[:6]]
+    logs_b = [entry.message for entry in env_b.state.logs[:6]]
+    logs_c = [entry.message for entry in env_c.state.logs[:6]]
+
+    assert obs_a.task_variant == "template_a"
+    assert obs_b.task_variant == "template_a"
+    assert obs_c.task_variant == "template_b"
+    assert obs_a.scenario_seed == 5
+    assert logs_a == logs_b
+    assert logs_a != logs_c
+
+
 def test_heuristic_baseline_solves_all_tasks() -> None:
     report = run_baseline_sync(use_openai_if_available=False)
     assert report["average_score"] >= 0.80

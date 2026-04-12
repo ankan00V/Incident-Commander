@@ -20,7 +20,12 @@ from incident_commander.models import (
     LogEntry,
     ServiceStatus,
 )
-from incident_commander.task_bank import QueryFinding, ScenarioDefinition, get_task, list_tasks
+from incident_commander.task_bank import (
+    QueryFinding,
+    ScenarioDefinition,
+    get_task_variant,
+    list_tasks,
+)
 
 
 @dataclass(frozen=True)
@@ -40,6 +45,8 @@ class IncidentCommanderEnvironment(
         super().__init__()
         self._action_signatures_seen: set[str] = set()
         self._task = list_tasks()[0]
+        self._task_variant = "canonical"
+        self._scenario_seed: int | None = None
         self._state = self._build_state(self._task)
         self._started_at = datetime.now(timezone.utc)
         self._load_task(self._task)
@@ -53,10 +60,14 @@ class IncidentCommanderEnvironment(
     ) -> IncidentObservation:
         """Reset the environment to a fresh deterministic scenario."""
 
-        del seed
-        resolved_task = get_task(task_id)
+        resolved_task, task_variant = get_task_variant(task_id, seed=seed)
         self._action_signatures_seen.clear()
-        self._load_task(resolved_task, episode_id=episode_id)
+        self._load_task(
+            resolved_task,
+            episode_id=episode_id,
+            task_variant=task_variant,
+            scenario_seed=seed,
+        )
         return self._build_observation(
             reward=0.0,
             done=False,
@@ -157,23 +168,40 @@ class IncidentCommanderEnvironment(
         )
 
     def _load_task(
-        self, task: ScenarioDefinition, episode_id: str | None = None
+        self,
+        task: ScenarioDefinition,
+        episode_id: str | None = None,
+        task_variant: str = "canonical",
+        scenario_seed: int | None = None,
     ) -> None:
         self._task = task
+        self._task_variant = task_variant
+        self._scenario_seed = scenario_seed
         self._started_at = datetime.now(timezone.utc)
-        self._state = self._build_state(task, episode_id=episode_id)
+        self._state = self._build_state(
+            task,
+            episode_id=episode_id,
+            task_variant=task_variant,
+            scenario_seed=scenario_seed,
+        )
         self._refresh_incident_state()
         initial_grade = grade_state(self._state, self._task)
         self._state.current_progress_score = initial_grade.score
 
     def _build_state(
-        self, task: ScenarioDefinition, episode_id: str | None = None
+        self,
+        task: ScenarioDefinition,
+        episode_id: str | None = None,
+        task_variant: str = "canonical",
+        scenario_seed: int | None = None,
     ) -> IncidentState:
         started_at = datetime.now(timezone.utc).isoformat()
         return IncidentState(
             episode_id=episode_id or str(uuid4()),
             step_count=0,
             task_id=task.task_id,
+            task_variant=task_variant,
+            scenario_seed=scenario_seed,
             difficulty=task.difficulty,
             title=task.title,
             objective=task.objective,
@@ -227,6 +255,8 @@ class IncidentCommanderEnvironment(
         graded = grade_state(self._state, self._task)
         return IncidentObservation(
             task_id=self._task.task_id,
+            task_variant=self._task_variant,
+            scenario_seed=self._scenario_seed,
             difficulty=self._task.difficulty,
             title=self._task.title,
             objective=self._task.objective,
@@ -260,6 +290,8 @@ class IncidentCommanderEnvironment(
                 "resolved": self._state.resolved,
                 "destructive_actions": list(self._state.destructive_actions),
                 "submitted_rca": bool(self._state.submitted_rca_text.strip()),
+                "task_variant": self._task_variant,
+                "scenario_seed": self._scenario_seed,
             },
         )
 

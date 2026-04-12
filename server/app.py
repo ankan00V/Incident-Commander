@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 from incident_commander.baseline import run_baseline_sync, run_demo_sync
 from incident_commander.grading import grade_state_payload, grader_result_to_dict
 from incident_commander.models import IncidentAction, IncidentObservation, IncidentState
-from incident_commander.task_bank import list_tasks
+from incident_commander.task_bank import list_task_variants, list_tasks
 from openenv.core.env_server import create_fastapi_app
 from openenv.core.env_server.serialization import serialize_observation
 from openenv.core.env_server.types import ResetRequest, ResetResponse, StepRequest, StepResponse
@@ -176,6 +176,7 @@ def about_endpoint() -> dict[str, Any]:
         "deterministic": True,
         "task_count": len(task_ids),
         "tasks": task_ids,
+        "task_variants": list_task_variants(),
         "difficulty_levels": ["easy", "medium", "hard"],
         "action_types": sorted(get_args(IncidentAction.model_fields["action_type"].annotation)),
         "openenv_endpoints": ["/reset", "/step", "/state", "/schema", "/health"],
@@ -310,6 +311,16 @@ def tasks_endpoint() -> dict[str, Any]:
     ]
     return {
         "tasks": tasks,
+        "variant_strategy": {
+            "enabled": True,
+            "seed_parameter": "reset.seed",
+            "default_variant": "canonical",
+            "variants": list_task_variants(),
+            "description": (
+                "reset(seed=...) applies deterministic log-template permutations per task "
+                "to reduce policy overfitting to one narrative."
+            ),
+        },
         "action_schema": IncidentAction.model_json_schema(),
         "observation_schema": IncidentObservation.model_json_schema(),
         "state_schema": IncidentState.model_json_schema(),

@@ -345,7 +345,7 @@ def _run_task(task_id: str, config: BaselineConfig, include_replay: bool = False
     client = _create_openai_client(config)
     task = get_task(task_id)
     try:
-        observation = session.reset(task_id=task_id)
+        observation = session.reset(task_id=task_id, seed=config.seed)
         max_steps = config.max_steps or session.state().max_steps
         trace: list[dict] = []
         initial_snapshot = _state_snapshot(session.state()) if include_replay else None

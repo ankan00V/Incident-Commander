@@ -36,6 +36,28 @@ I intentionally structured the server and packaging using the same design direct
 
 The difficulty progression is deliberate. The easy task is a mostly single-root-cause rollback. The medium task introduces cascading failure and multiple operational levers. The two hard tasks add coordination and communication pressure on top of technical mitigation, with the final task explicitly testing whether the agent can reason against bad instructions.
 
+## Seeded Task Variants (Anti-Overfitting)
+
+The environment now supports deterministic seeded task variants:
+
+- `POST /reset` accepts `seed`
+- each seed maps to one of `canonical`, `template_a`, `template_b`, `template_c`
+- variants keep root-cause and mitigation requirements unchanged, but permute incident log templates
+- this reduces policy overfitting to one exact wording while preserving deterministic grading
+
+Variant metadata is visible in `observation.task_variant` / `state.task_variant`, and `/tasks` exposes the variant strategy block.
+
+## Mini Benchmark Matrix
+
+`benchmark_results.json` includes a compact matrix on all tasks:
+
+| Policy | cpu_spike | db_cascade | ddos_payment | runbook_failure | avg |
+| --- | --- | --- | --- | --- | --- |
+| `heuristic` | `1.0000` | `0.9000` | `0.9200` | `0.8800` | `0.9250` |
+| `meta/llama-3.1-8b-instruct` | `0.3100` | `0.0000` | `0.2150` | `0.1700` | `0.1738` |
+| `meta/llama-3.1-70b-instruct` | `0.9329` | `0.7300` | `0.9200` | `0.8800` | `0.8657` |
+| `meta/llama-3.1-405b-instruct` | `0.9400` | `0.0000` | `0.0000` | `0.7675` | `0.4269` |
+
 ## Why This Environment Should Score Well
 
 ### Real-world utility
@@ -88,11 +110,22 @@ This project is designed to be inspectable in minutes:
 - `/demo` returns a step-by-step replay timeline for a single incident or the whole showcase
 - the hard tasks (`ddos_payment` and `runbook_failure`) are strong live demos because they show different kinds of reasoning failure: noisy mitigation versus blind runbook-following
 
+Judge quick eval (copy-paste):
+
+1. `curl -s http://127.0.0.1:8000/about`
+Expected: task count `4`, action types, variant labels.
+
+2. `curl -s -X POST http://127.0.0.1:8000/reset -H 'Content-Type: application/json' -d '{"task_id":"ddos_payment","seed":7}'`
+Expected: `observation.task_variant` present (`template_c` for seed `7`), `done=false`.
+
+3. `uv run openenv validate --url http://127.0.0.1:8000`
+Expected: successful OpenEnv validation.
+
 ## Verification Results
 
 Verified locally:
 
-- `uv run pytest -q` -> `28 passed`
+- `uv run pytest -q` -> `33 passed`
 - `uv run openenv validate` -> passed
 - `uv run python baseline.py --force-heuristic` -> average score `0.9250` (`db_cascade` = `0.90`, `ddos_payment` = `0.92`, `runbook_failure` = `0.88`)
 - `docker build -t incident-commander:local .` -> passed
@@ -100,6 +133,13 @@ Verified locally:
 - full local HTTP flow verified for `runbook_failure`: `/reset` -> `/step` -> `/state` -> `/grader`
 - `inference.py` defaults to NVIDIA's OpenAI-compatible endpoint and can be redirected with `API_BASE_URL` / `MODEL_NAME`
 - `./validate-submission.sh <space-url> .` is included for local preflight checks
+
+Common bad policies and why the grader catches them:
+
+- restarting healthy services: recorded as destructive actions and penalized in hard tasks
+- skipping investigation: required findings are missing so mitigation sequencing cannot score full credit
+- single-mitigation behavior: partial mitigation leaves resolution and communication coverage incomplete
+- blindly following stale runbooks: `runbook_failure` explicitly penalizes auth restart-first behavior
 
 Submission inference contract:
 

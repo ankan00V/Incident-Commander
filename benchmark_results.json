@@ -1,0 +1,51 @@
+{
+  "generated_at": "2026-04-12T16:21:30.000000+00:00",
+  "base_url": "https://integrate.api.nvidia.com/v1",
+  "matrix": [
+    {
+      "policy": "heuristic",
+      "mode": "heuristic_fallback",
+      "scores": {
+        "cpu_spike": 1.0,
+        "db_cascade": 0.9,
+        "ddos_payment": 0.92,
+        "runbook_failure": 0.88
+      },
+      "average_score": 0.925
+    },
+    {
+      "policy": "meta/llama-3.1-8b-instruct",
+      "mode": "openai_compatible",
+      "scores": {
+        "cpu_spike": 0.31,
+        "db_cascade": 0.0,
+        "ddos_payment": 0.215,
+        "runbook_failure": 0.17
+      },
+      "average_score": 0.1738
+    },
+    {
+      "policy": "meta/llama-3.1-70b-instruct",
+      "mode": "openai_compatible_with_fallback",
+      "scores": {
+        "cpu_spike": 0.9329,
+        "db_cascade": 0.73,
+        "ddos_payment": 0.92,
+        "runbook_failure": 0.88
+      },
+      "average_score": 0.8657
+    },
+    {
+      "policy": "meta/llama-3.1-405b-instruct",
+      "mode": "openai_compatible",
+      "scores": {
+        "cpu_spike": 0.94,
+        "db_cascade": 0.0,
+        "ddos_payment": 0.0,
+        "runbook_failure": 0.7675
+      },
+      "average_score": 0.4269
+    }
+  ],
+  "markdown_table": "| Policy | cpu_spike | db_cascade | ddos_payment | runbook_failure | avg |\n| --- | --- | --- | --- | --- | --- |\n| heuristic | 1.0000 | 0.9000 | 0.9200 | 0.8800 | 0.9250 |\n| meta/llama-3.1-8b-instruct | 0.3100 | 0.0000 | 0.2150 | 0.1700 | 0.1738 |\n| meta/llama-3.1-70b-instruct | 0.9329 | 0.7300 | 0.9200 | 0.8800 | 0.8657 |\n| meta/llama-3.1-405b-instruct | 0.9400 | 0.0000 | 0.0000 | 0.7675 | 0.4269 |"
+}

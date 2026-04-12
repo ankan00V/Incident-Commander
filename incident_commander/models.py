@@ -95,6 +95,14 @@ class IncidentObservation(Observation):
     """Observation returned from reset() and step()."""
 
     task_id: str = Field(..., description="Current scenario identifier")
+    task_variant: str = Field(
+        default="canonical",
+        description="Seed-selected deterministic task variant label",
+    )
+    scenario_seed: int | None = Field(
+        default=None,
+        description="Seed used at reset time to select task variants",
+    )
     difficulty: Difficulty = Field(..., description="Task difficulty")
     title: str = Field(..., description="Task title")
     objective: str = Field(..., description="Concrete success criterion")
@@ -156,6 +164,14 @@ class IncidentState(State):
     """Serializable environment state used for grading and inspection."""
 
     task_id: str = Field(..., description="Current scenario identifier")
+    task_variant: str = Field(
+        default="canonical",
+        description="Seed-selected deterministic task variant label",
+    )
+    scenario_seed: int | None = Field(
+        default=None,
+        description="Seed used at reset time to select task variants",
+    )
     difficulty: Difficulty = Field(..., description="Task difficulty")
     title: str = Field(..., description="Task title")
     objective: str = Field(..., description="Task objective")
