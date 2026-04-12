@@ -5,7 +5,7 @@ MANDATORY STDOUT FORMAT:
 
 [START] task=<task_name> env=<benchmark> model=<model_name>
 [STEP] step=<n> action=<action_str> reward=<0.00> done=<true|false> error=<msg|null>
-[END] success=<true|false> steps=<n> score=<score> rewards=<r1,r2,...,rn>
+[END] success=<true|false> steps=<n> rewards=<r1,r2,...,rn>
 
 Submission environment variables:
 - API_BASE_URL: OpenAI-compatible LLM endpoint (defaulted)
@@ -253,10 +253,10 @@ def log_step(step: int, action: str, reward: float, done: bool, error: str | Non
     )
 
 
-def log_end(success: bool, steps: int, score: float, rewards: list[float]) -> None:
+def log_end(success: bool, steps: int, rewards: list[float]) -> None:
     rewards_str = ",".join(f"{reward:.2f}" for reward in rewards)
     print(
-        f"[END] success={str(success).lower()} steps={steps} score={score:.2f} rewards={rewards_str}",
+        f"[END] success={str(success).lower()} steps={steps} rewards={rewards_str}",
         flush=True,
     )
 
@@ -822,16 +822,11 @@ def run_episode(
         max_steps = observation["step_count"] + observation["steps_remaining"]
 
         while not done and steps_taken < max_steps:
-            steps_taken += 1
-            step_error: str | None = None
             try:
                 action = request_action(client, observation, config, history)
                 action_str = _format_action(action)
             except Exception as exc:
-                action = None
-                action_str = "model_error"
-                step_error = f"{type(exc).__name__}: {exc}"
-                log_step(step=steps_taken, action=action_str, reward=0.0, done=False, error=step_error)
+                _ = exc
                 break
 
             try:
@@ -847,6 +842,10 @@ def run_episode(
                 observation = step_payload["observation"]
                 reward = _coerce_reward(step_payload.get("reward", 0.0))
                 done = bool(step_payload.get("done", False))
+                step_error = observation.get("last_action_error")
+                if step_error is not None:
+                    step_error = str(step_error)
+                steps_taken += 1
                 rewards.append(reward)
                 history.append(
                     {
@@ -865,14 +864,7 @@ def run_episode(
                     error=step_error,
                 )
             except Exception as exc:
-                step_error = f"{type(exc).__name__}: {exc}"
-                log_step(
-                    step=steps_taken,
-                    action=action_str,
-                    reward=0.0,
-                    done=False,
-                    error=step_error,
-                )
+                _ = exc
                 break
 
         score, state_payload = _episode_score(http_client, config, session_id)
@@ -897,7 +889,7 @@ def run_episode(
             "error": f"{type(exc).__name__}: {exc}",
         }
     finally:
-        log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
+        log_end(success=success, steps=steps_taken, rewards=rewards)
 
 
 def main() -> None:

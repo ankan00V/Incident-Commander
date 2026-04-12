@@ -16,17 +16,24 @@ tags:
 
 # Incident Commander
 
-Production incident response for OpenEnv. An agent operates as the incident commander during live outages, balancing diagnosis, mitigation, cross-team coordination, customer communication, and post-incident RCA.
+I built `Incident Commander` as a production-style OpenEnv benchmark where an agent must act like a real incident commander during a live outage.
+
+The agent is not rewarded for a single lucky fix. It has to investigate the right evidence, choose safe mitigations in order, escalate to the right teams, communicate clearly, and close with a defensible RCA.
 
 `incident_commander` is built directly against the Round 1 statement:
 
 > Build a complete, real-world OpenEnv environment that an AI agent can learn from through the standard `step()` / `reset()` / `state()` API.
 
-The agent must interpret telemetry, choose operational mitigations, page the correct teams, communicate externally when needed, and submit an RCA at the end of the episode.
+This environment is intentionally operational, not game-like. It models the real work done by SRE/platform responders under pressure, including blast-radius control and business-impact-aware decisions.
 
-This is not a toy workflow. It models a genuine human job performed by SRE, platform, security, payments, and incident-management teams under time pressure, with explicit penalties for invalid or destructive actions.
+## Engineering Direction
 
-The distinctive idea is that the agent is not only fixing infrastructure. It is running the whole war room: gathering evidence, choosing the least-destructive mitigation, coordinating responders, protecting revenue, and communicating externally while the system is still unstable.
+I used the official OpenEnv environment servers as structural references (`calendar_env`, `reasoning_gym_env`, `tbench2_env`, `carla_env`, `repl_env`) and kept the same fundamentals:
+
+- typed action/observation/state schemas
+- deterministic tasks and reproducible grading
+- clean server packaging for Docker + Space deployment
+- judge-friendly inspectability through explicit endpoints and replay paths
 
 ## Why This Submission Is Strong
 
@@ -192,7 +199,7 @@ uv run python inference.py
 
 - `[START] task=<task_name> env=<benchmark> model=<model_name>`
 - `[STEP] step=<n> action=<action_str> reward=<0.00> done=<true|false> error=<msg|null>`
-- `[END] success=<true|false> steps=<n> score=<score> rewards=<r1,r2,...,rn>`
+- `[END] success=<true|false> steps=<n> rewards=<r1,r2,...,rn>`
 
 By default, `inference.py` targets NVIDIA's OpenAI-compatible endpoint (`https://integrate.api.nvidia.com/v1`) with `meta/llama-3.1-8b-instruct`. You can override both with `API_BASE_URL` and `MODEL_NAME`.
 

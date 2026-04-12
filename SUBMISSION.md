@@ -12,6 +12,8 @@ Build a complete, real-world OpenEnv environment that an AI agent can learn from
 
 This environment targets a genuine human workflow rather than a toy control problem. The agent acts as the incident commander during a real-style outage and is evaluated not only on whether the system is restored, but also on how it gets there: investigating the right signals, choosing safe mitigations, escalating correctly, protecting business-critical flows, avoiding harmful actions, and communicating clearly when the incident demands it.
 
+I intentionally structured the server and packaging using the same design direction as strong official OpenEnv examples (`calendar_env`, `reasoning_gym_env`, `tbench2_env`, `carla_env`, `repl_env`): typed schemas, deterministic task logic, reproducible grading, and deployment-ready Docker layout.
+
 ## Why This Fits The Statement
 
 - real-world domain: SRE and platform incident response
